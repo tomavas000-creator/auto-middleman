@@ -1,0 +1,13 @@
+{
+  "name": "auto-middleman",
+  "version": "1.0.0",
+  "description": "Crypto escrow bot for Discord",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "axios": "^1.6.0"
+  }
+}
