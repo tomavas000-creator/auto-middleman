@@ -53,6 +53,86 @@ let liveRates = {
   usdt: 1.00,
 };
 
+// ========== RANDOM NAME LISTS ==========
+const realNames = [
+  'Toma', 'Alex', 'John', 'Sarah', 'Mike', 'Emma', 'David', 'Lisa', 
+  'Kevin', 'Sophia', 'James', 'Olivia', 'Liam', 'Mia', 'Noah', 'Isabella',
+  'Ethan', 'Amelia', 'Mason', 'Charlotte', 'Lucas', 'Harper', 'Elijah', 'Evelyn',
+  'CryptoKing', 'Whale', 'TraderJoe', 'LTC_Lover', 'Hodler', 'MoonBoy', 'DiamondHands'
+];
+
+const adjectives = ['Fast', 'Secure', 'Instant', 'Quick', 'Easy', 'Safe', 'Reliable', 'Trusted'];
+const nouns = ['Trade', 'Swap', 'Exchange', 'Deal', 'Transfer', 'Payment', 'Transaction'];
+
+// ========== RANDOM PROOF GENERATOR ==========
+function generateRandomProof() {
+  // Random amount between $5 and $500
+  const usdAmount = (Math.random() * 495 + 5).toFixed(2);
+  const ltcAmount = (usdAmount / liveRates.ltc).toFixed(8);
+  
+  // Random sender/receiver (60% anonymous, 40% real names)
+  const isSenderAnonymous = Math.random() < 0.6;
+  const isReceiverAnonymous = Math.random() < 0.6;
+  
+  const sender = isSenderAnonymous ? 'Anonymous' : realNames[Math.floor(Math.random() * realNames.length)];
+  const receiver = isReceiverAnonymous ? 'Anonymous' : realNames[Math.floor(Math.random() * realNames.length)];
+  
+  // Random transaction ID
+  const chars = '0123456789abcdef';
+  let txId = '';
+  for (let i = 0; i < 64; i++) txId += chars.charAt(Math.floor(Math.random() * chars.length));
+  const shortTxId = txId.substring(0, 12) + '...' + txId.substring(52, 64);
+  
+  // Random message variation
+  const msgVariations = [
+    `${ltcAmount} LTC ($${usdAmount} USD)`,
+    `**${ltcAmount}** LTC | **$${usdAmount}** USD`,
+    `${ltcAmount} LTC → $${usdAmount}`,
+    `💰 ${ltcAmount} LTC ($${usdAmount})`,
+    `⚡ ${ltcAmount} LTC • $${usdAmount}`
+  ];
+  
+  const embed = new EmbedBuilder()
+    .setTitle('✅ Trade Completed')
+    .setColor(0x00ff00)
+    .setDescription(msgVariations[Math.floor(Math.random() * msgVariations.length)])
+    .addFields(
+      { name: 'Sender', value: sender, inline: true },
+      { name: 'Receiver', value: receiver, inline: true },
+      { name: 'Transaction ID', value: shortTxId, inline: true }
+    )
+    .setTimestamp();
+  
+  return embed;
+}
+
+// ========== RANDOM TIMER FOR PROOFS ==========
+async function startRandomProofGenerator() {
+  const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
+  if (!logsChannel) return;
+  
+  const scheduleNext = () => {
+    // Random time between 45 seconds and 8 minutes (not exactly every 5 mins)
+    const minDelay = 45 * 1000;      // 45 seconds minimum
+    const maxDelay = 8 * 60 * 1000;   // 8 minutes maximum
+    const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
+    
+    setTimeout(async () => {
+      try {
+        const proof = generateRandomProof();
+        await logsChannel.send({ embeds: [proof] });
+        console.log(`📊 Random proof posted in logs channel`);
+      } catch (e) {
+        console.log('Error posting random proof:', e.message);
+      }
+      scheduleNext(); // Schedule next one
+    }, randomDelay);
+  };
+  
+  scheduleNext();
+  console.log('✅ Random proof generator started (45s - 8min intervals)');
+}
+
 async function fetchLiveRates() {
   try {
     const response = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=LTCUSDT', { timeout: 5000 });
@@ -194,35 +274,38 @@ client.once('ready', async () => {
   await fetchLiveRates();
   
   const channel = client.channels.cache.get(TICKET_CHANNEL_ID);
-  if (!channel) return;
-  
-  const messages = await channel.messages.fetch({ limit: 10 });
-  const oldPanel = messages.find(m => m.author.id === client.user.id);
-  if (oldPanel) await oldPanel.delete();
-  
-  const row = new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId('crypto_select')
-      .setPlaceholder('💰 Select your cryptocurrency')
-      .addOptions(
-        { label: '📀 Litecoin (LTC)', value: 'ltc', emoji: '💎' },
-        { label: '💵 Tether USDT (BEP-20)', value: 'usdt', emoji: '💰' }
+  if (channel) {
+    const messages = await channel.messages.fetch({ limit: 10 });
+    const oldPanel = messages.find(m => m.author.id === client.user.id);
+    if (oldPanel) await oldPanel.delete();
+    
+    const row = new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId('crypto_select')
+        .setPlaceholder('💰 Select your cryptocurrency')
+        .addOptions(
+          { label: '📀 Litecoin (LTC)', value: 'ltc', emoji: '💎' },
+          { label: '💵 Tether USDT (BEP-20)', value: 'usdt', emoji: '💰' }
+        )
+    );
+    
+    const panelEmbed = new EmbedBuilder()
+      .setTitle('# ✨ Sparkles Auto Middleman')
+      .setColor(0xff69b4)
+      .setDescription('**Paid Service**\nRead our ToS before using the bot: `#tos`')
+      .addFields(
+        { name: '💰 Fees', value: `• Deals $250+: **$${FEES.over250}**\n• Deals under $250: **$${FEES.under250}**\n• Deals under $${FEES.freeThreshold}: **FREE**`, inline: true },
+        { name: '📊 Live Rate', value: `**LTC:** $${liveRates.ltc.toFixed(2)}`, inline: true }
       )
-  );
+      .setFooter({ text: 'Sparkles Auto Middleman' })
+      .setTimestamp();
+    
+    await channel.send({ embeds: [panelEmbed], components: [row] });
+    console.log('✅ Ticket panel sent');
+  }
   
-  const panelEmbed = new EmbedBuilder()
-    .setTitle('# ✨ Sparkles Auto Middleman')
-    .setColor(0xff69b4)
-    .setDescription('**Paid Service**\nRead our ToS before using the bot: `#tos`')
-    .addFields(
-      { name: '💰 Fees', value: `• Deals $250+: **$${FEES.over250}**\n• Deals under $250: **$${FEES.under250}**\n• Deals under $${FEES.freeThreshold}: **FREE**`, inline: true },
-      { name: '📊 Live Rate', value: `**LTC:** $${liveRates.ltc.toFixed(2)}`, inline: true }
-    )
-    .setFooter({ text: 'Sparkles Auto Middleman' })
-    .setTimestamp();
-  
-  await channel.send({ embeds: [panelEmbed], components: [row] });
-  console.log('✅ Ticket panel sent');
+  // Start random proof generator
+  await startRandomProofGenerator();
 });
 
 // ========== PANEL COMMAND ==========
@@ -706,7 +789,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ========== DM CONFIRMATION ==========
+// ========== DM CONFIRMATION WITH DELAY ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
   if (!interaction.customId.startsWith('dm_confirm_')) return;
@@ -717,15 +800,14 @@ client.on('interactionCreate', async interaction => {
   if (interaction.user.id !== trade.senderId) return interaction.reply({ content: 'Not authorized', ephemeral: true });
   if (trade.paymentConfirmed) return interaction.reply({ content: 'Already confirmed', ephemeral: true });
   
-  trade.paymentConfirmed = true;
-  trades.set(channelId, trade);
-  await interaction.reply({ content: '✅ Payment confirmed!', ephemeral: true });
+  await interaction.reply({ content: '✅ Payment confirmed! Processing transaction...', ephemeral: true });
   
   const ticketChannel = await client.channels.fetch(channelId);
   if (ticketChannel) {
     const txId = generateTransactionId();
     const shortTxId = txId.substring(0, 12) + '...' + txId.substring(52, 64);
     
+    // Send Transaction Detected message
     const detectedEmbed = new EmbedBuilder()
       .setTitle('📡 Transaction Detected')
       .setColor(0xff9900)
@@ -733,25 +815,33 @@ client.on('interactionCreate', async interaction => {
         { name: 'Transaction', value: `${shortTxId} (${trade.amountCrypto} LTC)`, inline: false },
         { name: 'Amount Received', value: `${trade.amountCrypto} LTC ($${trade.amountUSD})`, inline: true },
         { name: 'Required Amount', value: `${trade.amountCrypto} LTC ($${trade.amountUSD})`, inline: true }
-      );
+      )
+      .setTimestamp();
     await ticketChannel.send({ embeds: [detectedEmbed] });
     
-    const confirmedEmbed = new EmbedBuilder()
-      .setTitle('✅ Transaction Confirmed!')
-      .setColor(0x00ff00)
-      .addFields({ name: 'Total Amount Received', value: `${trade.amountCrypto} LTC ($${trade.amountUSD})`, inline: true });
-    await ticketChannel.send({ embeds: [confirmedEmbed] });
-    
-    const proceedEmbed = new EmbedBuilder()
-      .setTitle('✅ You may proceed with your trade.')
-      .setColor(0x00ff00)
-      .setDescription(`1. <@${trade.receiverId}> Give your trader the items.\n\n2. <@${trade.senderId}> Click "Release" when received.`);
-    
-    const releaseRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`release_${trade.channelId}`).setLabel('🔓 Release').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`cancel_${trade.channelId}`).setLabel('❌ Cancel').setStyle(ButtonStyle.Danger)
-    );
-    await ticketChannel.send({ embeds: [proceedEmbed], components: [releaseRow] });
+    // DELAY of 15 seconds before confirming
+    setTimeout(async () => {
+      trade.paymentConfirmed = true;
+      trades.set(channelId, trade);
+      
+      const confirmedEmbed = new EmbedBuilder()
+        .setTitle('✅ Transaction Confirmed!')
+        .setColor(0x00ff00)
+        .addFields({ name: 'Total Amount Received', value: `${trade.amountCrypto} LTC ($${trade.amountUSD})`, inline: true })
+        .setTimestamp();
+      await ticketChannel.send({ embeds: [confirmedEmbed] });
+      
+      const proceedEmbed = new EmbedBuilder()
+        .setTitle('✅ You may proceed with your trade.')
+        .setColor(0x00ff00)
+        .setDescription(`1. <@${trade.receiverId}> Give your trader the items.\n\n2. <@${trade.senderId}> Click "Release" when received.`);
+      
+      const releaseRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`release_${trade.channelId}`).setLabel('🔓 Release').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`cancel_${trade.channelId}`).setLabel('❌ Cancel').setStyle(ButtonStyle.Danger)
+      );
+      await ticketChannel.send({ embeds: [proceedEmbed], components: [releaseRow] });
+    }, 15000); // 15 second delay
   }
 });
 
