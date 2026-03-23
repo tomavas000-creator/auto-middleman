@@ -31,6 +31,7 @@ const OWNER_ID = '1282001169274638376';
 const TICKET_CHANNEL_ID = '1484995433037041734';
 const MIDDLEMAN_ROLE_ID = '1485011076923003090';
 const LOGS_CHANNEL_ID = '1484995546249953280';
+const CHATTER_CHANNEL_ID = '1485705984625348853'; // <-- PUT YOUR CHANNEL ID HERE
 
 const FEES = {
   over250: 1.50,
@@ -53,43 +54,425 @@ let liveRates = {
   usdt: 1.00,
 };
 
-// ========== RANDOM NAME LISTS ==========
-const realNames = [
-  'Toma', 'Alex', 'John', 'Sarah', 'Mike', 'Emma', 'David', 'Lisa', 
-  'Kevin', 'Sophia', 'James', 'Olivia', 'Liam', 'Mia', 'Noah', 'Isabella',
-  'Ethan', 'Amelia', 'Mason', 'Charlotte', 'Lucas', 'Harper', 'Elijah', 'Evelyn',
-  'CryptoKing', 'Whale', 'TraderJoe', 'LTC_Lover', 'Hodler', 'MoonBoy', 'DiamondHands'
+// ========== FAKE USERS FOR CHATTER ==========
+const fakeUsers = [
+  { name: 'Azy', avatar: 'https://cdn.discordapp.com/avatars/383320525667303424/e50be684e10c242a1fd8cc44e35d58ff.png?size=4096' },
+  { name: 'alexx_gng', avatar: 'https://cdn.discordapp.com/avatars/1135999619541774386/fc2fcfce99710fcc8dc4c48f5ca14ff4.png?size=4096' },
+  { name: 'wolf145', avatar: 'https://cdn.discordapp.com/avatars/1138417089024106558/db8a82d2cdfec0c4c8c03a8f5487a375.png?size=4096' },
+  { name: 'COTZY2123', avatar: 'https://cdn.discordapp.com/avatars/1447662505483829250/fcdd5830d9acc21d45a230fab91a8aea.png?size=4096' },
+  { name: 'Biggy1112', avatar: 'https://cdn.discordapp.com/avatars/1457751269291851982/450edcb1026634addd5c0a5b42e7ac41.png?size=4096' },
+  { name: 'LEON_1212', avatar: 'https://cdn.discordapp.com/avatars/1453986984941977692/fcdf6d0192650886ae1b0037d4c744c0.png?size=4096' },
+  { name: 'Valorabd', avatar: 'https://cdn.discordapp.com/avatars/1482041529299112080/4dfba190ca13d64c4c03dea3bbdfee39.png?size=4096' },
+  { name: 'k1ssmyomega9999', avatar: 'https://cdn.discordapp.com/avatars/1123715011685130320/c794aca2a41454359cae584853976a6c.png?size=4096' },
+  { name: 'kafka', avatar: 'https://cdn.discordapp.com/avatars/1423641549056512192/64af447e2dc13bb0e50b8fbf2d64b1ce.png?size=4096' },
+  { name: 'Annie', avatar: 'https://cdn.discordapp.com/avatars/839335127250239489/a_672f1d4d5d2d2c16bc2f003526a1d89b.gif?size=4096' }
 ];
 
-const adjectives = ['Fast', 'Secure', 'Instant', 'Quick', 'Easy', 'Safe', 'Reliable', 'Trusted'];
-const nouns = ['Trade', 'Swap', 'Exchange', 'Deal', 'Transfer', 'Payment', 'Transaction'];
+// ========== RANDOM PROOF GENERATOR NAMES ==========
+const randomNames = [
+  'Tomar753', 'Alex_gng', 'Johndoe', 'Sarah_urlove', 'Mike999', 'Emmaammee', 
+  'Davidderpe', 'Lisalepa', 'Kevin123123', 'Sophia_foruu', 'James12156', 
+  'Olivia1361', 'Liam', 'Mia-Sophie', 'Noahplayz', 'Isabellas_saaw'
+];
+
+// ========== ADVANCED MESSAGE SYSTEM (NO REPEATS) ==========
+let messageHistory = [];
+let replyHistory = [];
+
+function getRandomMessage() {
+  const messages = [
+    // W/L Debates (15)
+    "yo chat W or L?",
+    "is this a W?",
+    "L or W?",
+    "W?",
+    "that's a W or L",
+    "rate this: W or L",
+    "W or L chat?",
+    "tell me this is a W",
+    "massive W or massive L?",
+    "W? 👀",
+    "L? 💀",
+    "W or L? i need opinions",
+    "be honest W or L",
+    "quick W or L check",
+    "W or L guys?",
+    
+    // Admin Abuse (12)
+    "when is admin abuse today?",
+    "admin abuse time?",
+    "who's getting abused today",
+    "abuse when 😭",
+    "admin abuse?",
+    "time for abuse?",
+    "abuse session at what time",
+    "yall doing abuse today?",
+    "abuse?",
+    "when abuse start?",
+    "admin abuse when?",
+    "abuse???",
+    
+    // Trust Checking (14)
+    "is this guy trusted?",
+    "someone vouch?",
+    "is this legit?",
+    "trusted?",
+    "can anyone vouch for this?",
+    "legit or scam?",
+    "vouch?",
+    "trust check",
+    "is this legit fr?",
+    "trusted or nah?",
+    "anyone know if this is trusted?",
+    "need a vouch",
+    "legit?",
+    "trust?",
+    
+    // Brainrot (20)
+    "skibidi toilet rizz 💀",
+    "gyattt",
+    "fr fr no cap",
+    "on god",
+    "blud thinks he's him",
+    "bro is not cooking",
+    "what the sigma",
+    "sheesh 🔥",
+    "bussin fr",
+    "no shot 💀",
+    "bet",
+    "cooked 💀",
+    "rizz",
+    "mewing",
+    "sigma male",
+    "lmaoo",
+    "💀💀💀",
+    "nah fr",
+    "cap",
+    "no cap",
+    
+    // Random Beefs (15)
+    "bro thinks he's the main character",
+    "why is everyone fighting today",
+    "beef is crazy",
+    "who beefing rn?",
+    "yall need to chill",
+    "another beef?",
+    "this server wilding",
+    "beef or nah?",
+    "beef in chat",
+    "someone's mad",
+    "who's beefing?",
+    "beef everywhere",
+    "yall need to stop",
+    "beef crazy rn",
+    "chill out 💀",
+    
+    // Trading/Crypto (18)
+    "just made 50 bucks 🔥",
+    "anyone buying LTC?",
+    "price looking good rn",
+    "who's trading today?",
+    "market is crazy",
+    "just completed a trade, fast af",
+    "bot is goated fr",
+    "escrow system too smooth",
+    "LTC to $100?",
+    "chart looking bullish",
+    "good time to buy?",
+    "who's selling?",
+    "price action wild",
+    "ez money",
+    "another trade done",
+    "middleman legit",
+    "fastest trade ever",
+    "bot is clutch",
+    
+    // General Chat (20)
+    "what yall doing today?",
+    "who's awake rn?",
+    "anyone else trading?",
+    "good morning 🗿",
+    "night shift gang where you at",
+    "active rn?",
+    "server dead?",
+    "wassup",
+    "yo",
+    "anyone here?",
+    "chat alive?",
+    "good evening",
+    "what's good",
+    "how's everyone doing",
+    "busy day today",
+    "anyone down to trade",
+    "bored rn",
+    "wyd",
+    "hmu if trading",
+    "let's get this bread",
+    
+    // Reactions (16)
+    "LMAOOO",
+    "💀",
+    "😭",
+    "nah fr",
+    "real",
+    "fax",
+    "fr",
+    "💀💀💀",
+    "😂",
+    "💯",
+    "🔥",
+    "🗿",
+    "😭😭😭",
+    "LOL",
+    "fr fr",
+    "on god",
+    
+    // Middleman Specific (20)
+    "best middleman bot fr",
+    "escrow saved me from scam",
+    "this bot is too smooth",
+    "fastest release ever",
+    "middleman goated",
+    "trust this bot 100%",
+    "never had issues with escrow",
+    "bot is legit",
+    "just used the bot, 10/10",
+    "middleman system is 🔥",
+    "bot never fails",
+    "trusted escrow",
+    "quick trade thanks bot",
+    "safest way to trade",
+    "no scams with this bot",
+    "bot doing gods work",
+    "middleman clutch",
+    "escrow is the way",
+    "best decision to use this",
+    "bot is op"
+  ];
+  
+  // Filter out recent messages (last 15)
+  const available = messages.filter(m => !messageHistory.includes(m));
+  let selected;
+  
+  if (available.length === 0) {
+    selected = messages[Math.floor(Math.random() * messages.length)];
+    messageHistory = [];
+  } else {
+    selected = available[Math.floor(Math.random() * available.length)];
+  }
+  
+  messageHistory.push(selected);
+  if (messageHistory.length > 15) messageHistory.shift();
+  
+  return selected;
+}
+
+// ========== INTELLIGENT REPLY SYSTEM ==========
+function getReplyToMessage(messageContent, userMention) {
+  const lower = messageContent.toLowerCase();
+  let reply = '';
+  
+  // Crypto/Trading
+  if (lower.includes('price') || lower.includes('ltc') || lower.includes('chart') || lower.includes('buy') || lower.includes('sell') || lower.includes('trade')) {
+    const replies = [
+      `@${userMention} looking good rn ngl`,
+      `@${userMention} charts are crazy today 🔥`,
+      `@${userMention} LTC to the moon fr`,
+      `@${userMention} just bought more 💎`,
+      `@${userMention} hold or sell?`,
+      `@${userMention} market is wild rn`,
+      `@${userMention} ez profit 🔥`,
+      `@${userMention} trust the process`,
+      `@${userMention} lfg 🚀`,
+      `@${userMention} bot makes it easy`,
+      `@${userMention} did a trade earlier, smooth`,
+      `@${userMention} price action crazy`,
+      `@${userMention} good time to buy?`,
+      `@${userMention} holding or selling?`,
+      `@${userMention} LTC looking bullish`
+    ];
+    reply = replies[Math.floor(Math.random() * replies.length)];
+  }
+  // W/L
+  else if (lower.includes('w') || lower.includes('l') || lower.includes('ratio')) {
+    const replies = [
+      `@${userMention} massive W 🔥`,
+      `@${userMention} L for sure 💀`,
+      `@${userMention} W no cap`,
+      `@${userMention} that's a fat L`,
+      `@${userMention} W fr fr`,
+      `@${userMention} L 💀💀💀`,
+      `@${userMention} W all day`,
+      `@${userMention} L ngl`,
+      `@${userMention} W 🔥🔥`,
+      `@${userMention} L ratio`,
+      `@${userMention} W easy`,
+      `@${userMention} big L`
+    ];
+    reply = replies[Math.floor(Math.random() * replies.length)];
+  }
+  // Admin Abuse
+  else if (lower.includes('admin') || lower.includes('abuse')) {
+    const replies = [
+      `@${userMention} when tho 😭`,
+      `@${userMention} fr when`,
+      `@${userMention} someone lmk`,
+      `@${userMention} need that abuse rn`,
+      `@${userMention} abuse time best time`,
+      `@${userMention} waiting for it`,
+      `@${userMention} today?`,
+      `@${userMention} let's goooo`,
+      `@${userMention} abuse goes crazy`,
+      `@${userMention} 💀💀💀`
+    ];
+    reply = replies[Math.floor(Math.random() * replies.length)];
+  }
+  // Trust/Vouch
+  else if (lower.includes('trust') || lower.includes('legit') || lower.includes('scam') || lower.includes('vouch')) {
+    const replies = [
+      `@${userMention} yeah he's trusted`,
+      `@${userMention} can vouch`,
+      `@${userMention} legit fr`,
+      `@${userMention} done trades with him, legit`,
+      `@${userMention} scammer?`,
+      `@${userMention} idk tbh`,
+      `@${userMention} he's good`,
+      `@${userMention} vouch 🔥`,
+      `@${userMention} not sure`,
+      `@${userMention} 100% trusted`,
+      `@${userMention} use the bot, it's safe`,
+      `@${userMention} escrow system legit`
+    ];
+    reply = replies[Math.floor(Math.random() * replies.length)];
+  }
+  // Greetings
+  else if (lower.includes('hi') || lower.includes('hello') || lower.includes('hey') || lower.includes('yo') || lower.includes('wassup')) {
+    const replies = [
+      `@${userMention} hey 🔥`,
+      `@${userMention} wassup`,
+      `@${userMention} yo`,
+      `@${userMention} sup`,
+      `@${userMention} hello`,
+      `@${userMention} heyy`,
+      `@${userMention} what's good`,
+      `@${userMention} welcome`,
+      `@${userMention} how's it going`,
+      `@${userMention} 🤙`
+    ];
+    reply = replies[Math.floor(Math.random() * replies.length)];
+  }
+  // Brainrot/Slang
+  else if (lower.includes('skibidi') || lower.includes('gyat') || lower.includes('rizz') || lower.includes('mewing') || lower.includes('sigma')) {
+    const replies = [
+      `@${userMention} 💀💀💀`,
+      `@${userMention} nah you tweaking`,
+      `@${userMention} fr fr`,
+      `@${userMention} on god`,
+      `@${userMention} no cap`,
+      `@${userMention} blud thinks he's him`,
+      `@${userMention} 💀`,
+      `@${userMention} 😭😭😭`
+    ];
+    reply = replies[Math.floor(Math.random() * replies.length)];
+  }
+  // Beef/Drama
+  else if (lower.includes('beef') || lower.includes('fight') || lower.includes('drama')) {
+    const replies = [
+      `@${userMention} they wilding fr`,
+      `@${userMention} beef crazy 💀`,
+      `@${userMention} let them cook`,
+      `@${userMention} another beef?`,
+      `@${userMention} yall need to chill`,
+      `@${userMention} who's fighting?`,
+      `@${userMention} drama again?`,
+      `@${userMention} 💀💀💀`
+    ];
+    reply = replies[Math.floor(Math.random() * replies.length)];
+  }
+  // Bot/Trade related
+  else if (lower.includes('bot') || lower.includes('middleman') || lower.includes('escrow')) {
+    const replies = [
+      `@${userMention} best bot fr`,
+      `@${userMention} escrow system goated`,
+      `@${userMention} used it today, smooth`,
+      `@${userMention} bot is legit`,
+      `@${userMention} 10/10 recommend`,
+      `@${userMention} never had issues`,
+      `@${userMention} fast and secure`,
+      `@${userMention} middleman clutch`
+    ];
+    reply = replies[Math.floor(Math.random() * replies.length)];
+  }
+  // Questions
+  else if (lower.includes('?')) {
+    const replies = [
+      `@${userMention} idk tbh`,
+      `@${userMention} good question`,
+      `@${userMention} fr tho`,
+      `@${userMention} same question`,
+      `@${userMention} lmk when you find out`,
+      `@${userMention} 🤔`,
+      `@${userMention} no idea`,
+      `@${userMention} someone answer`
+    ];
+    reply = replies[Math.floor(Math.random() * replies.length)];
+  }
+  // Default random reaction
+  else {
+    const defaultReplies = [
+      `@${userMention} fr`,
+      `@${userMention} real`,
+      `@${userMention} fax`,
+      `@${userMention} 💀`,
+      `@${userMention} 🔥`,
+      `@${userMention} fr fr`,
+      `@${userMention} on god`,
+      `@${userMention} no cap`,
+      `@${userMention} W`,
+      `@${userMention} L`,
+      `@${userMention} 💯`
+    ];
+    reply = defaultReplies[Math.floor(Math.random() * defaultReplies.length)];
+  }
+  
+  // Ensure no repeat replies
+  if (replyHistory.includes(reply)) {
+    const fallback = [`@${userMention} fr`, `@${userMention} real`, `@${userMention} W`];
+    reply = fallback[Math.floor(Math.random() * fallback.length)];
+  }
+  
+  replyHistory.push(reply);
+  if (replyHistory.length > 20) replyHistory.shift();
+  
+  return reply;
+}
+
+function isFakeUser(username) {
+  return fakeUsers.some(fake => fake.name.toLowerCase() === username.toLowerCase());
+}
 
 // ========== RANDOM PROOF GENERATOR ==========
 function generateRandomProof() {
-  // Random amount between $5 and $500
   const usdAmount = (Math.random() * 495 + 5).toFixed(2);
   const ltcAmount = (usdAmount / liveRates.ltc).toFixed(8);
   
-  // Random sender/receiver (60% anonymous, 40% real names)
   const isSenderAnonymous = Math.random() < 0.6;
   const isReceiverAnonymous = Math.random() < 0.6;
   
-  const sender = isSenderAnonymous ? 'Anonymous' : realNames[Math.floor(Math.random() * realNames.length)];
-  const receiver = isReceiverAnonymous ? 'Anonymous' : realNames[Math.floor(Math.random() * realNames.length)];
+  const sender = isSenderAnonymous ? 'Anonymous' : randomNames[Math.floor(Math.random() * randomNames.length)];
+  const receiver = isReceiverAnonymous ? 'Anonymous' : randomNames[Math.floor(Math.random() * randomNames.length)];
   
-  // Random transaction ID
   const chars = '0123456789abcdef';
   let txId = '';
   for (let i = 0; i < 64; i++) txId += chars.charAt(Math.floor(Math.random() * chars.length));
   const shortTxId = txId.substring(0, 12) + '...' + txId.substring(52, 64);
   
-  // Random message variation
   const msgVariations = [
     `${ltcAmount} LTC ($${usdAmount} USD)`,
     `**${ltcAmount}** LTC | **$${usdAmount}** USD`,
     `${ltcAmount} LTC → $${usdAmount}`,
     `💰 ${ltcAmount} LTC ($${usdAmount})`,
-    `⚡ ${ltcAmount} LTC • $${usdAmount}`
+    `✅ ${ltcAmount} LTC · $${usdAmount}`
   ];
   
   const embed = new EmbedBuilder()
@@ -106,33 +489,7 @@ function generateRandomProof() {
   return embed;
 }
 
-// ========== RANDOM TIMER FOR PROOFS ==========
-async function startRandomProofGenerator() {
-  const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
-  if (!logsChannel) return;
-  
-  const scheduleNext = () => {
-    // Random time between 45 seconds and 8 minutes (not exactly every 5 mins)
-    const minDelay = 45 * 1000;      // 45 seconds minimum
-    const maxDelay = 8 * 60 * 1000;   // 8 minutes maximum
-    const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
-    
-    setTimeout(async () => {
-      try {
-        const proof = generateRandomProof();
-        await logsChannel.send({ embeds: [proof] });
-        console.log(`📊 Random proof posted in logs channel`);
-      } catch (e) {
-        console.log('Error posting random proof:', e.message);
-      }
-      scheduleNext(); // Schedule next one
-    }, randomDelay);
-  };
-  
-  scheduleNext();
-  console.log('✅ Random proof generator started (45s - 8min intervals)');
-}
-
+// ========== FETCH LIVE RATES ==========
 async function fetchLiveRates() {
   try {
     const response = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=LTCUSDT', { timeout: 5000 });
@@ -159,51 +516,32 @@ function generateTransactionId() {
   return id;
 }
 
-// ========== FIND USER FUNCTION ==========
+// ========== FIND USER ==========
 async function findUser(guild, input) {
   input = input.trim().replace(/[@]/g, '');
   
-  console.log(`🔍 Searching for user: "${input}"`);
-  
   try {
     await guild.members.fetch();
-  } catch(e) {
-    console.log('Could not fetch all members');
-  }
+  } catch(e) {}
   
   if (input.match(/^\d+$/)) {
     try {
       const user = await client.users.fetch(input);
-      console.log(`✅ Found by ID: ${user.tag}`);
       return { id: user.id, name: user.username, found: true };
     } catch(e) {}
   }
   
   let member = guild.members.cache.find(m => 
-    m.user.username.toLowerCase() === input.toLowerCase()
-  );
-  if (member) {
-    console.log(`✅ Found by exact username: ${member.user.tag}`);
-    return { id: member.id, name: member.user.username, found: true };
-  }
-  
-  member = guild.members.cache.find(m => 
+    m.user.username.toLowerCase() === input.toLowerCase() ||
     m.displayName.toLowerCase() === input.toLowerCase()
   );
-  if (member) {
-    console.log(`✅ Found by display name: ${member.user.tag}`);
-    return { id: member.id, name: member.user.username, found: true };
-  }
+  if (member) return { id: member.id, name: member.user.username, found: true };
   
   member = guild.members.cache.find(m => 
     m.user.username.toLowerCase().includes(input.toLowerCase())
   );
-  if (member) {
-    console.log(`✅ Found by partial username: ${member.user.tag}`);
-    return { id: member.id, name: member.user.username, found: true };
-  }
+  if (member) return { id: member.id, name: member.user.username, found: true };
   
-  console.log(`❌ Could not find user: "${input}"`);
   return { id: null, name: input, found: false };
 }
 
@@ -237,9 +575,8 @@ async function sendPaymentInvoice(channel, trade) {
   
   await channel.send({ embeds: [embed], components: [copyRow] });
   
-  const guild = channel.guild;
-  const sender = guild.members.cache.get(trade.senderId);
-  const middlemanRole = guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
+  const sender = channel.guild.members.cache.get(trade.senderId);
+  const middlemanRole = channel.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
   
   if (sender && middlemanRole && sender.roles.cache.has(MIDDLEMAN_ROLE_ID)) {
     const confirmRow = new ActionRowBuilder().addComponents(
@@ -252,14 +589,104 @@ async function sendPaymentInvoice(channel, trade) {
       .addFields(
         { name: 'Sender', value: `<@${trade.senderId}>`, inline: true },
         { name: 'Receiver', value: `<@${trade.receiverId}>`, inline: true },
-        { name: 'Amount', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()} ($${trade.amountUSD})`, inline: true },
-        { name: 'Fee', value: trade.feeUSD > 0 ? `$${trade.feeUSD}` : 'FREE', inline: true }
+        { name: 'Amount', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()} ($${trade.amountUSD})`, inline: true }
       );
     
     try {
       await sender.send({ embeds: [dmEmbed], components: [confirmRow] });
     } catch(e) {}
   }
+}
+
+// ========== RANDOM CHATTER ==========
+async function startRandomChatter() {
+  const channel = client.channels.cache.get(CHATTER_CHANNEL_ID);
+  if (!channel) {
+    console.log(`❌ Chatter channel not found!`);
+    return;
+  }
+  
+  console.log(`✅ Random chatter started in ${channel.name}`);
+  
+  const scheduleNext = () => {
+    const minDelay = 30 * 1000;
+    const maxDelay = 5 * 60 * 1000;
+    const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
+    
+    setTimeout(async () => {
+      try {
+        if (Math.random() < 0.6) {
+          const fakeUser = fakeUsers[Math.floor(Math.random() * fakeUsers.length)];
+          const message = getRandomMessage();
+          
+          const webhook = await channel.createWebhook({
+            name: fakeUser.name,
+            avatar: fakeUser.avatar
+          });
+          
+          await webhook.send(message);
+          await webhook.delete();
+          console.log(`💬 ${fakeUser.name}: "${message}"`);
+        }
+      } catch (e) {}
+      scheduleNext();
+    }, randomDelay);
+  };
+  
+  scheduleNext();
+}
+
+// ========== REPLY HANDLER (10-60 SECONDS) ==========
+client.on('messageCreate', async message => {
+  if (message.author.bot) return;
+  if (message.channel.id !== CHATTER_CHANNEL_ID) return;
+  if (isFakeUser(message.author.username)) return;
+  if (Math.random() > 0.45) return;
+  
+  const delay = Math.floor(Math.random() * 50000) + 10000; // 10-60 seconds
+  
+  setTimeout(async () => {
+    try {
+      const channel = client.channels.cache.get(CHATTER_CHANNEL_ID);
+      if (!channel) return;
+      
+      const fakeUser = fakeUsers[Math.floor(Math.random() * fakeUsers.length)];
+      const reply = getReplyToMessage(message.content, message.author.username);
+      
+      const webhook = await channel.createWebhook({
+        name: fakeUser.name,
+        avatar: fakeUser.avatar
+      });
+      
+      await webhook.send(reply);
+      await webhook.delete();
+      console.log(`💬 ${fakeUser.name} replied to ${message.author.username}: "${reply}"`);
+    } catch(e) {}
+  }, delay);
+});
+
+// ========== RANDOM PROOF GENERATOR LOOP ==========
+async function startRandomProofGenerator() {
+  const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
+  if (!logsChannel) return;
+  
+  const scheduleNext = () => {
+    const minDelay = 45 * 1000;
+    const maxDelay = 8 * 60 * 1000;
+    const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
+    
+    setTimeout(async () => {
+      try {
+        const proof = generateRandomProof();
+        await logsChannel.send({ embeds: [proof] });
+        console.log(`📊 Random proof posted`);
+      } catch (e) {}
+      scheduleNext();
+    }, randomDelay);
+  };
+  
+  scheduleNext();
+  console.log('✅ Random proof generator started (45s - 8min intervals)');
 }
 
 // ========== CLIENT READY ==========
@@ -304,8 +731,8 @@ client.once('ready', async () => {
     console.log('✅ Ticket panel sent');
   }
   
-  // Start random proof generator
   await startRandomProofGenerator();
+  await startRandomChatter();
 });
 
 // ========== PANEL COMMAND ==========
@@ -807,7 +1234,6 @@ client.on('interactionCreate', async interaction => {
     const txId = generateTransactionId();
     const shortTxId = txId.substring(0, 12) + '...' + txId.substring(52, 64);
     
-    // Send Transaction Detected message
     const detectedEmbed = new EmbedBuilder()
       .setTitle('📡 Transaction Detected')
       .setColor(0xff9900)
@@ -819,7 +1245,6 @@ client.on('interactionCreate', async interaction => {
       .setTimestamp();
     await ticketChannel.send({ embeds: [detectedEmbed] });
     
-    // DELAY of 15 seconds before confirming
     setTimeout(async () => {
       trade.paymentConfirmed = true;
       trades.set(channelId, trade);
@@ -841,7 +1266,7 @@ client.on('interactionCreate', async interaction => {
         new ButtonBuilder().setCustomId(`cancel_${trade.channelId}`).setLabel('❌ Cancel').setStyle(ButtonStyle.Danger)
       );
       await ticketChannel.send({ embeds: [proceedEmbed], components: [releaseRow] });
-    }, 15000); // 15 second delay
+    }, 15000);
   }
 });
 
@@ -924,12 +1349,10 @@ client.on('interactionCreate', async interaction => {
   await interaction.channel.send({ embeds: [withdrawalEmbed], components: [closeRow] });
   await interaction.editReply({ content: '✅ Trade completed!' });
   
-  // Add purchase to sender
   const currentTotal = userPurchases.get(trade.senderId) || 0;
   const newTotal = currentTotal + trade.amountUSD;
   userPurchases.set(trade.senderId, newTotal);
   
-  // Log to logs channel
   const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
   if (logsChannel) {
     const sender = await client.users.fetch(trade.senderId);
@@ -963,5 +1386,4 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ========== START BOT ==========
 client.login(process.env.DISCORD_TOKEN);
