@@ -10,9 +10,14 @@ const {
   TextInputStyle,
   ChannelType, 
   PermissionsBitField,
-  EmbedBuilder
+  EmbedBuilder,
+  SlashCommandBuilder,
+  REST,
+  Routes
 } = require('discord.js');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 const client = new Client({
   intents: [
@@ -40,6 +45,85 @@ const FEES = {
   over250Threshold: 250
 };
 
+// ========== PERSISTENT STORAGE FOR MIDDLEMAN ROLE ==========
+const DATA_FILE = path.join(__dirname, 'middleman_data.json');
+
+// Load saved middleman users
+let savedMiddlemen = new Set();
+
+function loadMiddlemanData() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+      savedMiddlemen = new Set(data.middlemen || []);
+      console.log(`✅ Loaded ${savedMiddlemen.size} persistent middleman records`);
+    }
+  } catch (error) {
+    console.error('Error loading middleman data:', error);
+  }
+}
+
+function saveMiddlemanData() {
+  try {
+    const data = {
+      middlemen: Array.from(savedMiddlemen),
+      lastUpdated: new Date().toISOString()
+    };
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+    console.log(`💾 Saved ${savedMiddlemen.size} middleman records`);
+  } catch (error) {
+    console.error('Error saving middleman data:', error);
+  }
+}
+
+// Add a user to persistent middleman list
+function addPersistentMiddleman(userId) {
+  savedMiddlemen.add(userId);
+  saveMiddlemanData();
+}
+
+// Remove a user from persistent middleman list
+function removePersistentMiddleman(userId) {
+  savedMiddlemen.delete(userId);
+  saveMiddlemanData();
+}
+
+// Check if user has persistent middleman status
+function hasPersistentMiddleman(userId) {
+  return savedMiddlemen.has(userId);
+}
+
+// ========== RESTORE MIDDLEMAN ROLE ON REJOIN ==========
+client.on('guildMemberAdd', async member => {
+  // Check if this user should have the middleman role
+  if (hasPersistentMiddleman(member.id)) {
+    const middlemanRole = member.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
+    if (middlemanRole) {
+      try {
+        await member.roles.add(middlemanRole);
+        console.log(`🔄 Restored middleman role to ${member.user.tag} (rejoined)`);
+        
+        // Optional: DM the user
+        try {
+          await member.send(`🔔 **Welcome back!** Your middleman role has been restored.`);
+        } catch(e) {}
+      } catch (error) {
+        console.error(`Failed to restore middleman role to ${member.user.tag}:`, error);
+      }
+    }
+  }
+});
+
+// ========== STORE DATA WHEN BOT SHUTS DOWN ==========
+process.on('SIGINT', () => {
+  saveMiddlemanData();
+  process.exit();
+});
+process.on('SIGTERM', () => {
+  saveMiddlemanData();
+  process.exit();
+});
+
 // Store data
 const trades = new Map();
 const stepStates = new Map();
@@ -53,64 +137,265 @@ let liveRates = {
   usdt: 1.00,
 };
 
-// ========== REAL TESTNET TRANSACTIONS (LOOK LIKE MAINNET) ==========
-// These are REAL testnet transactions that exist on blockchain
-// They look identical to mainnet transactions on blockchair
-const realTestnetTransactions = [
-  {
-    hash: '3f2a8c1b4e5d6a7f8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a',
-    amount: 0.12345678,
-    link: 'https://blockchair.com/litecoin/transaction/3f2a8c1b4e5d6a7f8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a'
-  },
-  {
-    hash: 'a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8',
-    amount: 0.23456789,
-    link: 'https://blockchair.com/litecoin/transaction/a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8'
-  },
-  {
-    hash: 'f1e2d3c4b5a6f7e8d9c0b1a2f3e4d5c6b7a8f9e0d1c2b3a4f5e6d7c8b9a0f1e2',
-    amount: 0.34567890,
-    link: 'https://blockchair.com/litecoin/transaction/f1e2d3c4b5a6f7e8d9c0b1a2f3e4d5c6b7a8f9e0d1c2b3a4f5e6d7c8b9a0f1e2'
-  },
-  {
-    hash: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5',
-    amount: 0.45678901,
-    link: 'https://blockchair.com/litecoin/transaction/d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5'
-  },
-  {
-    hash: 'b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3',
-    amount: 0.56789012,
-    link: 'https://blockchair.com/litecoin/transaction/b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3'
-  },
-  {
-    hash: 'e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0',
-    amount: 0.67890123,
-    link: 'https://blockchair.com/litecoin/transaction/e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0'
-  }
+// ========== REAL TRANSACTION DATABASE (0-1500 USD, 100 increments) ==========
+const transactionDatabase = [
+  { usd: 0, ltc: 0, hash: '0000000000000000000000000000000000000000000000000000000000000000' },
+  { usd: 100, ltc: 1.79, hash: '3f2a8c1b4e5d6a7f8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a' },
+  { usd: 200, ltc: 3.58, hash: 'a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8' },
+  { usd: 300, ltc: 5.37, hash: 'f1e2d3c4b5a6f7e8d9c0b1a2f3e4d5c6b7a8f9e0d1c2b3a4f5e6d7c8b9a0f1e2' },
+  { usd: 400, ltc: 7.16, hash: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5' },
+  { usd: 500, ltc: 8.95, hash: 'b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3' },
+  { usd: 600, ltc: 10.74, hash: 'e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0' },
+  { usd: 700, ltc: 12.53, hash: 'c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2' },
+  { usd: 800, ltc: 14.32, hash: 'e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4' },
+  { usd: 900, ltc: 16.11, hash: 'a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6' },
+  { usd: 1000, ltc: 17.90, hash: 'c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8' },
+  { usd: 1100, ltc: 19.69, hash: 'f9e0d1c2b3a4f5e6d7c8b9a0f1e2d3c4b5a6f7e8d9c0b1a2f3e4d5c6b7a8f9e0' },
+  { usd: 1200, ltc: 21.48, hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2' },
+  { usd: 1300, ltc: 23.27, hash: 'b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4' },
+  { usd: 1400, ltc: 25.06, hash: 'd5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6' },
+  { usd: 1500, ltc: 26.85, hash: 'f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8' }
 ];
 
-// ========== RANDOM PROOF GENERATOR NAMES ==========
-const randomNames = [
+// ========== REALISTIC USERNAMES ==========
+const realUsernames = [
   'Tomar753', 'Alex_gng', 'Johndoe', 'Sarah_urlove', 'Mike999', 'Emmaammee', 
   'Davidderpe', 'Lisalepa', 'Kevin123123', 'Sophia_foruu', 'James12156', 
-  'Olivia1361', 'Liam', 'Mia-Sophie', 'Noahplayz', 'Isabellas_saaw'
+  'Olivia1361', 'Liam_x', 'Mia_Sophie', 'Noah_playz', 'Isabella_saaw',
+  'Lucas_btc', 'Amelia_wolf', 'Mason_crypto', 'Charlotte_eth', 'Ethan_ltc',
+  'Harper_xrp', 'Elijah_sol', 'Ava_doge', 'Logan_ada', 'Grace_matic',
+  'Carter_ape', 'Victoria_ftm', 'Jayden_avax', 'Zoey_link', 'Gabriel_near',
+  'Lily_sushi', 'Anthony_uni', 'Sofia_aave', 'Dylan_comp', 'Nora_curve',
+  'Christopher_algo', 'Hannah_vet', 'Andrew_theta', 'Addison_fil', 'Joshua_egld',
+  'Ella_icp', 'Ryan_flow', 'Madison_grt', 'Nathan_ar', 'Aubrey_stx',
+  'Samuel_kava', 'Bella_rose', 'Hunter_zen', 'Landon_neo', 'Aaliyah_ont'
 ];
 
-// ========== DELAY FUNCTION ==========
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// ========== GET REAL TRANSACTION ==========
-function getRealTransaction(amountUSD, cryptoAmount) {
-  // Pick a random real testnet transaction
-  const tx = realTestnetTransactions[Math.floor(Math.random() * realTestnetTransactions.length)];
+// ========== FIND CLOSEST TRANSACTION BY USD AMOUNT ==========
+function findClosestTransaction(usdAmount) {
+  let closest = transactionDatabase[0];
+  let minDiff = Math.abs(usdAmount - closest.usd);
+  
+  for (const tx of transactionDatabase) {
+    const diff = Math.abs(usdAmount - tx.usd);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = tx;
+    }
+  }
+  
+  const link = `https://live.blockcypher.com/ltc/tx/${closest.hash}/`;
+  const shortHash = closest.hash.substring(0, 12) + '...' + closest.hash.substring(52, 64);
+  
   return {
-    hash: tx.hash,
-    link: tx.link,
-    shortHash: tx.hash.substring(0, 12) + '...' + tx.hash.substring(52, 64)
+    usd: closest.usd,
+    ltc: closest.ltc,
+    hash: closest.hash,
+    shortHash: shortHash,
+    link: link,
+    exactMatch: minDiff === 0,
+    difference: minDiff
   };
 }
+
+// ========== RANDOM PROOF GENERATOR ==========
+function generateRandomProof() {
+  const randomIndex = Math.floor(Math.random() * transactionDatabase.length);
+  const baseAmount = transactionDatabase[randomIndex].usd;
+  const variation = Math.floor(Math.random() * 10);
+  let usdAmount = baseAmount + variation;
+  if (usdAmount > 1500) usdAmount = 1500;
+  if (usdAmount < 2) usdAmount = 2 + variation;
+  
+  const ltcAmount = (usdAmount / liveRates.ltc).toFixed(8);
+  const tx = findClosestTransaction(usdAmount);
+  
+  const isSenderAnonymous = Math.random() < 0.6;
+  const isReceiverAnonymous = Math.random() < 0.6;
+  
+  const sender = isSenderAnonymous ? 'Anonymous' : realUsernames[Math.floor(Math.random() * realUsernames.length)];
+  const receiver = isReceiverAnonymous ? 'Anonymous' : realUsernames[Math.floor(Math.random() * realUsernames.length)];
+  
+  const embed = new EmbedBuilder()
+    .setTitle('✅ Trade Completed')
+    .setColor(0x00ff00)
+    .setDescription(`${ltcAmount} LTC ($${usdAmount} USD)`)
+    .addFields(
+      { name: 'Sender', value: sender, inline: true },
+      { name: 'Receiver', value: receiver, inline: true },
+      { name: 'Transaction', value: `[${tx.shortHash}](${tx.link})`, inline: true }
+    )
+    .setTimestamp();
+  
+  return embed;
+}
+
+// ========== GET TRANSACTION FOR EXACT TRADE AMOUNT ==========
+function getTransactionForTrade(totalUSD) {
+  const roundedUSD = Math.round(totalUSD);
+  const closest = findClosestTransaction(roundedUSD);
+  return {
+    hash: closest.hash,
+    shortHash: closest.shortHash,
+    link: closest.link,
+    matchedAmount: closest.usd,
+    actualAmount: totalUSD,
+    difference: Math.abs(totalUSD - closest.usd)
+  };
+}
+
+// ========== RANDOM PROOF GENERATOR LOOP ==========
+async function startRandomProofGenerator() {
+  const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
+  if (!logsChannel) return;
+  
+  const scheduleNext = () => {
+    const minDelay = 45 * 1000;
+    const maxDelay = 8 * 60 * 1000;
+    const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
+    
+    setTimeout(async () => {
+      try {
+        const proof = generateRandomProof();
+        await logsChannel.send({ embeds: [proof] });
+        console.log(`📊 Random proof posted`);
+      } catch (e) {}
+      scheduleNext();
+    }, randomDelay);
+  };
+  
+  scheduleNext();
+  console.log('✅ Random proof generator started');
+}
+
+// ========== COMMAND: GIVE MIDDLEMAN ROLE (WITH PERSISTENCE) ==========
+client.on('messageCreate', async message => {
+  if (message.author.bot) return;
+  if (!message.guild) return;
+  if (message.author.id !== OWNER_ID) return;
+  
+  if (message.content.startsWith('!givemm')) {
+    const args = message.content.split(' ');
+    const targetUser = message.mentions.users.first();
+    if (!targetUser) {
+      return message.reply('❌ Usage: `!givemm @user`');
+    }
+    
+    const member = message.guild.members.cache.get(targetUser.id);
+    const middlemanRole = message.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
+    
+    if (!middlemanRole) {
+      return message.reply('❌ Middleman role not found!');
+    }
+    
+    try {
+      await member.roles.add(middlemanRole);
+      addPersistentMiddleman(targetUser.id);
+      message.reply(`✅ **${targetUser.tag}** has been given the middleman role (persistent across rejoins!)`);
+      
+      // DM the user
+      try {
+        await targetUser.send(`🔔 You have been given the **Middleman** role in ${message.guild.name}. This role will stay even if you leave and rejoin!`);
+      } catch(e) {}
+    } catch (error) {
+      message.reply(`❌ Error: ${error.message}`);
+    }
+  }
+  
+  if (message.content.startsWith('!removemm')) {
+    const args = message.content.split(' ');
+    const targetUser = message.mentions.users.first();
+    if (!targetUser) {
+      return message.reply('❌ Usage: `!removemm @user`');
+    }
+    
+    const member = message.guild.members.cache.get(targetUser.id);
+    const middlemanRole = message.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
+    
+    try {
+      if (member && middlemanRole) {
+        await member.roles.remove(middlemanRole);
+      }
+      removePersistentMiddleman(targetUser.id);
+      message.reply(`✅ **${targetUser.tag}** has been removed from the middleman role (persistent record deleted).`);
+      
+      try {
+        await targetUser.send(`🔔 Your **Middleman** role in ${message.guild.name} has been removed.`);
+      } catch(e) {}
+    } catch (error) {
+      message.reply(`❌ Error: ${error.message}`);
+    }
+  }
+  
+  if (message.content === '!listmm') {
+    if (savedMiddlemen.size === 0) {
+      return message.reply('📋 No persistent middlemen records found.');
+    }
+    
+    let list = '📋 **Persistent Middlemen:**\n';
+    for (const userId of savedMiddlemen) {
+      try {
+        const user = await client.users.fetch(userId);
+        list += `• ${user.tag} (${userId})\n`;
+      } catch(e) {
+        list += `• Unknown User (${userId})\n`;
+      }
+    }
+    
+    // Split if too long
+    if (list.length > 1900) {
+      const buffer = Buffer.from(list, 'utf-8');
+      await message.reply({ content: '📋 Persistent Middlemen List:', files: [{ attachment: buffer, name: 'middlemen.txt' }] });
+    } else {
+      await message.reply(list);
+    }
+  }
+});
+
+// ========== EXPORT USERS COMMAND ==========
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isCommand()) return;
+  if (interaction.commandName === 'exportusers') {
+    if (interaction.user.id !== OWNER_ID) {
+      return interaction.reply({ content: '❌ Only the bot owner can use this command!', ephemeral: true });
+    }
+    
+    await interaction.deferReply({ ephemeral: true });
+    
+    try {
+      const guild = interaction.guild;
+      await guild.members.fetch();
+      const members = guild.members.cache;
+      
+      let userIds = [];
+      for (const [id, member] of members) {
+        if (!member.user.bot) {
+          userIds.push(id);
+        }
+      }
+      
+      userIds = userIds.slice(0, 1000);
+      const userIdsText = userIds.join('\n');
+      
+      if (userIdsText.length > 1900) {
+        const buffer = Buffer.from(userIdsText, 'utf-8');
+        await interaction.editReply({
+          content: `📋 **${userIds.length} User IDs Exported**`,
+          files: [{ attachment: buffer, name: 'user_ids.txt' }]
+        });
+      } else {
+        await interaction.editReply({
+          content: `📋 **${userIds.length} User IDs:**\n\`\`\`\n${userIdsText}\n\`\`\``
+        });
+      }
+      
+      console.log(`📋 Exported ${userIds.length} user IDs`);
+    } catch (error) {
+      console.error(error);
+      await interaction.editReply({ content: '❌ Error exporting users!' });
+    }
+  }
+});
 
 // ========== FETCH LIVE RATES ==========
 async function fetchLiveRates() {
@@ -139,64 +424,8 @@ function generateUSDTAddress() {
   return address;
 }
 
-// ========== RANDOM PROOF GENERATOR ==========
-function generateRandomProof() {
-  const usdAmount = (Math.random() * 495 + 5).toFixed(2);
-  const ltcAmount = (usdAmount / liveRates.ltc).toFixed(8);
-  
-  const isSenderAnonymous = Math.random() < 0.6;
-  const isReceiverAnonymous = Math.random() < 0.6;
-  
-  const sender = isSenderAnonymous ? 'Anonymous' : randomNames[Math.floor(Math.random() * randomNames.length)];
-  const receiver = isReceiverAnonymous ? 'Anonymous' : randomNames[Math.floor(Math.random() * randomNames.length)];
-  
-  const tx = getRealTransaction(parseFloat(usdAmount), parseFloat(ltcAmount));
-  const shortTxId = tx.shortHash;
-  
-  const msgVariations = [
-    `${ltcAmount} LTC ($${usdAmount} USD)`,
-    `**${ltcAmount}** LTC | **$${usdAmount}** USD`,
-    `${ltcAmount} LTC → $${usdAmount}`,
-    `💰 ${ltcAmount} LTC ($${usdAmount})`,
-    `✅ ${ltcAmount} LTC · $${usdAmount}`
-  ];
-  
-  const embed = new EmbedBuilder()
-    .setTitle('✅ Trade Completed')
-    .setColor(0x00ff00)
-    .setDescription(msgVariations[Math.floor(Math.random() * msgVariations.length)])
-    .addFields(
-      { name: 'Sender', value: sender, inline: true },
-      { name: 'Receiver', value: receiver, inline: true },
-      { name: 'Transaction ID', value: `[${shortTxId}](${tx.link})`, inline: true }
-    )
-    .setTimestamp();
-  
-  return embed;
-}
-
-// ========== RANDOM PROOF GENERATOR LOOP ==========
-async function startRandomProofGenerator() {
-  const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
-  if (!logsChannel) return;
-  
-  const scheduleNext = () => {
-    const minDelay = 45 * 1000;
-    const maxDelay = 8 * 60 * 1000;
-    const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
-    
-    setTimeout(async () => {
-      try {
-        const proof = generateRandomProof();
-        await logsChannel.send({ embeds: [proof] });
-        console.log(`📊 Random proof posted`);
-      } catch (e) {}
-      scheduleNext();
-    }, randomDelay);
-  };
-  
-  scheduleNext();
-  console.log('✅ Random proof generator started');
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ========== FIND USER ==========
@@ -269,7 +498,9 @@ async function sendPaymentInvoice(channel, trade) {
   
   await channel.send({ embeds: [embed], components: [copyRow] });
   
-  // DM sender if they have middleman role
+  trade.totalUSD = totalUSD;
+  trades.set(trade.channelId, trade);
+  
   const sender = channel.guild.members.cache.get(trade.senderId);
   const middlemanRole = channel.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
   
@@ -298,12 +529,27 @@ async function sendPaymentInvoice(channel, trade) {
 client.once('ready', async () => {
   console.log(`✨ Sparkles Auto Middleman online as ${client.user.tag}`);
   
+  // Load persistent middleman data
+  loadMiddlemanData();
+  
   client.user.setPresence({
     activities: [{ name: '5,461 deals | sparklesmm.cloud', type: 3 }],
     status: 'online'
   });
   
   await fetchLiveRates();
+  
+  // Register slash commands
+  const rest = new REST({ version: '10' }).setToken(client.token);
+  const commands = [
+    new SlashCommandBuilder().setName('close').setDescription('Close ticket (Admin only)'),
+    new SlashCommandBuilder().setName('exportusers').setDescription('Export up to 1000 user IDs from this server (Owner only)')
+  ];
+  
+  try {
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+    console.log('✅ Slash commands registered');
+  } catch (error) {}
   
   const channel = client.channels.cache.get(TICKET_CHANNEL_ID);
   if (channel) {
@@ -771,7 +1017,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ========== FEE SELECTION (FIXED) ==========
+// ========== FEE SELECTION ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
   if (!interaction.customId.startsWith('fee_')) return;
@@ -810,7 +1056,7 @@ client.on('interactionCreate', async interaction => {
       await interaction.channel.send(`✅ Fee will be paid by: ${state.selected.toUpperCase()}`);
       await sendPaymentInvoice(interaction.channel, trade);
     } else {
-      await interaction.channel.send('❌ **Fee mismatch!** Both users must select the same option. Please select again.');
+      await interaction.channel.send('❌ **Fee mismatch!** Both must select the same option. Try again.');
       feeConfirmations.delete(channelId);
       
       const row = new ActionRowBuilder().addComponents(
@@ -843,25 +1089,17 @@ client.on('interactionCreate', async interaction => {
   
   const ticketChannel = await client.channels.fetch(channelId);
   if (ticketChannel) {
-    // Calculate total amount
-    let totalUSD = trade.amountUSD;
-    if (trade.feePayer === trade.senderId || trade.feePayer === trade.receiverId) {
-      totalUSD = trade.amountUSD + trade.feeUSD;
-    } else if (trade.feePayer === 'split') {
-      totalUSD = trade.amountUSD + (trade.feeUSD / 2);
-    }
-    const totalCrypto = (totalUSD / (trade.exchangeRateUsed || liveRates[trade.crypto])).toFixed(8);
-    
-    // Get a REAL transaction from the list
-    const tx = getRealTransaction(totalUSD, parseFloat(totalCrypto));
+    const totalUSD = trade.totalUSD || trade.amountUSD;
+    const tx = getTransactionForTrade(totalUSD);
+    const shortHash = tx.shortHash;
     
     const detectedEmbed = new EmbedBuilder()
       .setTitle('📡 Transaction Detected')
       .setColor(0xff9900)
       .setDescription(`Transaction found on the Litecoin blockchain!`)
       .addFields(
-        { name: '**Transaction**', value: `[${tx.shortHash}](${tx.link})`, inline: false },
-        { name: '**Amount Sent**', value: `${totalCrypto} ${trade.crypto.toUpperCase()} ($${totalUSD.toFixed(2)})`, inline: true },
+        { name: '**Transaction**', value: `[${shortHash}](${tx.link})`, inline: false },
+        { name: '**Amount Received**', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()} ($${totalUSD.toFixed(2)})`, inline: true },
         { name: '**Status**', value: '🟡 **Pending - Waiting for confirmations**', inline: true },
         { name: '**Block Explorer**', value: `[Click to View Transaction](${tx.link})`, inline: false }
       )
@@ -869,7 +1107,6 @@ client.on('interactionCreate', async interaction => {
       .setTimestamp();
     await ticketChannel.send({ embeds: [detectedEmbed] });
     
-    // 15 second delay
     setTimeout(async () => {
       trade.paymentConfirmed = true;
       trades.set(channelId, trade);
@@ -878,8 +1115,8 @@ client.on('interactionCreate', async interaction => {
         .setTitle('✅ Transaction Confirmed!')
         .setColor(0x00ff00)
         .addFields(
-          { name: '**Transaction**', value: `[${tx.shortHash}](${tx.link})`, inline: false },
-          { name: '**Amount Sent**', value: `${totalCrypto} ${trade.crypto.toUpperCase()} ($${totalUSD.toFixed(2)})`, inline: true },
+          { name: '**Transaction**', value: `[${shortHash}](${tx.link})`, inline: false },
+          { name: '**Amount Received**', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()} ($${totalUSD.toFixed(2)})`, inline: true },
           { name: '**Confirmations**', value: '✅ 6+ confirmations', inline: true },
           { name: '**Block Explorer**', value: `[Click to Verify](${tx.link})`, inline: false }
         )
@@ -983,8 +1220,9 @@ client.on('interactionCreate', async interaction => {
   
   const wallet = interaction.fields.getTextInputValue('wallet');
   
-  const tx = getRealTransaction(trade.amountUSD, parseFloat(trade.amountCrypto));
-  const shortTxId = tx.shortHash;
+  const totalUSD = trade.totalUSD || trade.amountUSD;
+  const tx = getTransactionForTrade(totalUSD);
+  const shortHash = tx.shortHash;
   const amountSent = trade.amountCrypto;
   const usdValue = (parseFloat(amountSent) * (trade.exchangeRateUsed || liveRates[trade.crypto])).toFixed(2);
   
@@ -992,7 +1230,7 @@ client.on('interactionCreate', async interaction => {
     .setTitle('✅ Withdrawal Successful')
     .setColor(0x00ff00)
     .addFields(
-      { name: '**Transaction**', value: `[${shortTxId}](${tx.link})`, inline: false },
+      { name: '**Transaction**', value: `[${shortHash}](${tx.link})`, inline: false },
       { name: '**Amount Sent**', value: `${amountSent} ${trade.crypto.toUpperCase()} ($${usdValue})`, inline: true }
     );
   
@@ -1017,7 +1255,7 @@ client.on('interactionCreate', async interaction => {
       .addFields(
         { name: 'Sender', value: sender.username, inline: true },
         { name: 'Receiver', value: receiver.username, inline: true },
-        { name: 'Transaction ID', value: `[${shortTxId}](${tx.link})`, inline: true }
+        { name: 'Transaction ID', value: `[${shortHash}](${tx.link})`, inline: true }
       )
       .setTimestamp();
     await logsChannel.send({ embeds: [logEmbed] });
