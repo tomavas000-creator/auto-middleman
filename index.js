@@ -37,6 +37,9 @@ const TICKET_CHANNEL_ID = '1484995433037041734';
 const MIDDLEMAN_ROLE_ID = '1485011076923003090';
 const LOGS_CHANNEL_ID = '1484995546249953280';
 
+// ========== YOUR REAL LTC ADDRESS ==========
+const LTC_WALLET_ADDRESS = 'LMS43um6CpdThyVKSgxSEstk4Sbsx5ETNq';
+
 const FEES = {
   over250: 1.50,
   under250: 0.50,
@@ -72,7 +75,6 @@ function removePersistentMiddleman(userId) { savedMiddlemen.delete(userId); save
 function hasPersistentMiddleman(userId) { return savedMiddlemen.has(userId); }
 
 // ========== REAL TRANSACTION DATABASE (LOOKS LIKE MAINNET) ==========
-// These are real Litecoin transaction hashes that work on blockchair
 const realTransactionHashes = [
   { usd: 25, ltc: 0.45, hash: 'b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3' },
   { usd: 50, ltc: 0.90, hash: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5' },
@@ -94,7 +96,7 @@ const realTransactionHashes = [
   { usd: 1500, ltc: 27.00, hash: 'e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7' }
 ];
 
-// ========== GET TRANSACTION LINK (MAINNET STYLE) ==========
+// ========== GET TRANSACTION LINK ==========
 function getTransactionLink(hash) {
   return `https://live.blockcypher.com/ltc/tx/${hash}/`;
 }
@@ -230,13 +232,6 @@ async function fetchLiveRates() {
 }
 setInterval(fetchLiveRates, 2 * 60 * 60 * 1000);
 
-function generateLTCAddress() {
-  const chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-  let address = Math.random() > 0.5 ? 'L' : 'M';
-  for (let i = 0; i < 33; i++) address += chars.charAt(Math.floor(Math.random() * chars.length));
-  return address;
-}
-
 function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 // ========== FIND USER ==========
@@ -253,26 +248,32 @@ async function findUser(guild, input) {
   return { id: null, name: input, found: false };
 }
 
-// ========== SEND PAYMENT INVOICE ==========
+// ========== SEND PAYMENT INVOICE (WITH REAL LTC ADDRESS) ==========
 async function sendPaymentInvoice(channel, trade) {
   const rate = trade.exchangeRateUsed || liveRates[trade.crypto];
   let totalUSD = trade.amountUSD;
   let feeMessage = '';
+  let feeBreakdown = '';
+  
   if (trade.feePayer === trade.senderId) {
     totalUSD = trade.amountUSD + trade.feeUSD;
     feeMessage = `(includes $${trade.feeUSD} fee paid by Sender)`;
+    feeBreakdown = `**Sender pays:** $${trade.feeUSD}`;
   } else if (trade.feePayer === trade.receiverId) {
     totalUSD = trade.amountUSD + trade.feeUSD;
     feeMessage = `(includes $${trade.feeUSD} fee paid by Receiver)`;
+    feeBreakdown = `**Receiver pays:** $${trade.feeUSD}`;
   } else if (trade.feePayer === 'split') {
-    totalUSD = trade.amountUSD + (trade.feeUSD / 2);
-    feeMessage = `(includes $${(trade.feeUSD / 2).toFixed(2)} fee from split)`;
+    const splitAmount = trade.feeUSD / 2;
+    totalUSD = trade.amountUSD + splitAmount;
+    feeMessage = `(includes $${splitAmount.toFixed(2)} fee from split - each pays $${splitAmount.toFixed(2)})`;
+    feeBreakdown = `⚖️ **Split Fee 50/50:**\n• Sender pays: $${splitAmount.toFixed(2)}\n• Receiver pays: $${splitAmount.toFixed(2)}`;
   } else {
     feeMessage = `(No fee - under $50)`;
+    feeBreakdown = `**No fee** - deal under $50`;
   }
   
   const totalCrypto = (totalUSD / rate).toFixed(8);
-  const walletAddress = generateLTCAddress();
   
   const embed = new EmbedBuilder()
     .setTitle('💸 Payment Information')
@@ -281,10 +282,12 @@ async function sendPaymentInvoice(channel, trade) {
     .addFields(
       { name: '**USD Amount**', value: `$${trade.amountUSD.toFixed(2)}`, inline: true },
       { name: '**Fee**', value: trade.feeUSD > 0 ? `$${trade.feeUSD.toFixed(2)}` : 'FREE', inline: true },
+      { name: '**Fee Breakdown**', value: feeBreakdown, inline: false },
       { name: '**Total to Send**', value: `${totalCrypto} ${trade.crypto.toUpperCase()} ($${totalUSD.toFixed(2)}) ${feeMessage}`, inline: false },
-      { name: '**Payment Address**', value: `\`${walletAddress}\``, inline: false },
+      { name: '**Payment Address**', value: `\`${LTC_WALLET_ADDRESS}\``, inline: false },
       { name: '**Current Rate**', value: `1 ${trade.crypto.toUpperCase()} = $${rate.toFixed(2)}`, inline: true }
     )
+    .setFooter({ text: '⚠️ Send EXACT amount shown above. Transaction will be confirmed on blockchain.' })
     .setTimestamp();
   
   const copyRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`copy_${trade.channelId}`).setLabel('Copy Details').setStyle(ButtonStyle.Secondary));
@@ -305,7 +308,7 @@ async function sendPaymentInvoice(channel, trade) {
         { name: 'Sender', value: `<@${trade.senderId}>`, inline: true },
         { name: 'Receiver', value: `<@${trade.receiverId}>`, inline: true },
         { name: 'Amount to Send', value: `${totalCrypto} ${trade.crypto.toUpperCase()} ($${totalUSD.toFixed(2)})`, inline: true },
-        { name: 'Fee', value: trade.feeUSD > 0 ? `$${trade.feeUSD}` : 'FREE', inline: true }
+        { name: 'Fee Breakdown', value: feeBreakdown, inline: true }
       );
     try { await sender.send({ embeds: [dmEmbed], components: [confirmRow] }); } catch(e) {}
   }
@@ -314,6 +317,7 @@ async function sendPaymentInvoice(channel, trade) {
 // ========== CLIENT READY ==========
 client.once('ready', async () => {
   console.log(`✨ Sparkles Auto Middleman online as ${client.user.tag}`);
+  console.log(`💰 LTC Wallet: ${LTC_WALLET_ADDRESS}`);
   loadMiddlemanData();
   client.user.setPresence({ activities: [{ name: '5,461 deals | sparklesmm.cloud', type: 3 }], status: 'online' });
   await fetchLiveRates();
@@ -668,7 +672,7 @@ client.on('interactionCreate', async interaction => {
         new ButtonBuilder().setCustomId(`fee_receiver_${channelId}`).setLabel('📥 Receiver pays').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`fee_split_${channelId}`).setLabel('⚖️ Split 50/50').setStyle(ButtonStyle.Secondary)
       );
-      const embed = new EmbedBuilder().setTitle('Select Who Pays the Fee').setColor(0xff9900).setDescription(`Fee: $${trade.feeUSD}`);
+      const embed = new EmbedBuilder().setTitle('Select Who Pays the Fee').setColor(0xff9900).setDescription(`Fee: $${trade.feeUSD}\n\n⚖️ **Split 50/50:** Each pays $${(trade.feeUSD / 2).toFixed(2)}`);
       await interaction.channel.send({ embeds: [embed], components: [row] });
       feeConfirmations.set(channelId, { users: [], selected: null });
     }
@@ -712,7 +716,7 @@ client.on('interactionCreate', async interaction => {
         new ButtonBuilder().setCustomId(`fee_receiver_${channelId}`).setLabel('📥 Receiver pays').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`fee_split_${channelId}`).setLabel('⚖️ Split 50/50').setStyle(ButtonStyle.Secondary)
       );
-      const embed = new EmbedBuilder().setTitle('Select Who Pays the Fee').setColor(0xff9900).setDescription(`Fee: $${trade.feeUSD}`);
+      const embed = new EmbedBuilder().setTitle('Select Who Pays the Fee').setColor(0xff9900).setDescription(`Fee: $${trade.feeUSD}\n\n⚖️ **Split 50/50:** Each pays $${(trade.feeUSD / 2).toFixed(2)}`);
       await interaction.channel.send({ embeds: [embed], components: [row] });
       feeConfirmations.set(channelId, { users: [], selected: null });
     }
@@ -822,8 +826,7 @@ client.on('interactionCreate', async interaction => {
       if (trade.feePayer === trade.senderId || trade.feePayer === trade.receiverId) totalUSD = trade.amountUSD + trade.feeUSD;
       else if (trade.feePayer === 'split') totalUSD = trade.amountUSD + (trade.feeUSD / 2);
       const totalCrypto = (totalUSD / rate).toFixed(8);
-      const walletAddress = 'Lei7Rwf1AvJg6sqhHjbKvkirzXqa6ZSLtET';
-      const details = `Address: ${walletAddress}\nAmount: ${totalCrypto} ${trade.crypto.toUpperCase()}\nUSD: $${totalUSD.toFixed(2)}`;
+      const details = `Address: ${LTC_WALLET_ADDRESS}\nAmount: ${totalCrypto} ${trade.crypto.toUpperCase()}\nUSD: $${totalUSD.toFixed(2)}`;
       await interaction.reply({ content: `📋 Copied!\n\`\`\`${details}\`\`\``, ephemeral: true });
     }
   }
