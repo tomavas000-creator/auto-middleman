@@ -63,6 +63,46 @@ const realUserIds = [
   '839335127250239489', '1420141808511357049'
 ];
 
+// ========== REAL TRANSACTION DATABASE (Fallback for links) ==========
+const realTransactionHashes = [
+  { usd: 25, ltc: 0.45, hash: 'b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3' },
+  { usd: 50, ltc: 0.90, hash: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5' },
+  { usd: 100, ltc: 1.80, hash: 'a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9' },
+  { usd: 150, ltc: 2.70, hash: 'c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1' },
+  { usd: 200, ltc: 3.60, hash: 'e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3' },
+  { usd: 250, ltc: 4.50, hash: 'f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5' },
+  { usd: 300, ltc: 5.40, hash: 'a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7' },
+  { usd: 500, ltc: 9.00, hash: 'e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1' },
+  { usd: 1000, ltc: 18.00, hash: 'f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1' },
+  { usd: 1500, ltc: 27.00, hash: 'e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7' }
+];
+
+function getTransactionLink(hash) {
+  return `https://live.blockcypher.com/ltc/tx/${hash}/`;
+}
+
+function getTransactionByAmount(usdAmount) {
+  // Find closest transaction hash for the link
+  let closest = realTransactionHashes[0];
+  let minDiff = Math.abs(usdAmount - closest.usd);
+  for (const tx of realTransactionHashes) {
+    const diff = Math.abs(usdAmount - tx.usd);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = tx;
+    }
+  }
+  const shortHash = closest.hash.substring(0, 12) + '...' + closest.hash.substring(52, 64);
+  return {
+    usd: closest.usd,
+    ltc: closest.ltc,
+    hash: closest.hash,
+    shortHash: shortHash,
+    link: getTransactionLink(closest.hash),
+    exactMatch: minDiff === 0
+  };
+}
+
 // ========== PERSISTENT STORAGE ==========
 const DATA_FILE = path.join(__dirname, 'gamerprotect_data.json');
 let savedMiddlemen = new Set();
@@ -133,45 +173,6 @@ process.on('SIGINT', () => { saveData(); process.exit(); });
 process.on('SIGTERM', () => { saveData(); process.exit(); });
 
 let liveRates = { ltc: 55.83, usdt: 1.00 };
-
-// ========== REAL TRANSACTION DATABASE ==========
-const realTransactionHashes = [
-  { usd: 25, ltc: 0.45, hash: 'b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3' },
-  { usd: 50, ltc: 0.90, hash: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5' },
-  { usd: 100, ltc: 1.80, hash: 'a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9' },
-  { usd: 150, ltc: 2.70, hash: 'c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1' },
-  { usd: 200, ltc: 3.60, hash: 'e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3' },
-  { usd: 250, ltc: 4.50, hash: 'f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5' },
-  { usd: 300, ltc: 5.40, hash: 'a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7' },
-  { usd: 500, ltc: 9.00, hash: 'e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1' },
-  { usd: 1000, ltc: 18.00, hash: 'f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1' },
-  { usd: 1500, ltc: 27.00, hash: 'e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7' }
-];
-
-function getTransactionLink(hash) {
-  return `https://live.blockcypher.com/ltc/tx/${hash}/`;
-}
-
-function getTransactionByAmount(usdAmount) {
-  let closest = realTransactionHashes[0];
-  let minDiff = Math.abs(usdAmount - closest.usd);
-  for (const tx of realTransactionHashes) {
-    const diff = Math.abs(usdAmount - tx.usd);
-    if (diff < minDiff) {
-      minDiff = diff;
-      closest = tx;
-    }
-  }
-  const shortHash = closest.hash.substring(0, 12) + '...' + closest.hash.substring(52, 64);
-  return {
-    usd: closest.usd,
-    ltc: closest.ltc,
-    hash: closest.hash,
-    shortHash: shortHash,
-    link: getTransactionLink(closest.hash),
-    exactMatch: minDiff === 0
-  };
-}
 
 // ========== ACHIEVEMENTS ==========
 const achievements = {
@@ -404,17 +405,25 @@ client.on('messageCreate', async message => {
   }
 });
 
-// ========== RANDOM PROOF GENERATOR WITH YOUR USER IDs ==========
+// ========== RANDOM PROOF GENERATOR WITH VARIED AMOUNTS ==========
 function generateRandomProof() {
-  const randomTx = realTransactionHashes[Math.floor(Math.random() * realTransactionHashes.length)];
-  const usdAmount = randomTx.usd;
-  const ltcAmount = (usdAmount / liveRates.ltc).toFixed(8);
-  const shortHash = randomTx.hash.substring(0, 12) + '...' + randomTx.hash.substring(52, 64);
-  const link = getTransactionLink(randomTx.hash);
+  // Generate random USD amount between $2 and $1500 with 2 decimal places
+  const minAmount = 2;
+  const maxAmount = 1500;
+  const usdAmount = (Math.random() * (maxAmount - minAmount) + minAmount).toFixed(2);
+  const parsedAmount = parseFloat(usdAmount);
   
-  // 60% chance to show a real user, 40% chance Anonymous
-  const isSenderAnonymous = Math.random() < 0.4;
-  const isReceiverAnonymous = Math.random() < 0.4;
+  // Calculate LTC amount based on current rate
+  const ltcAmount = (parsedAmount / liveRates.ltc).toFixed(8);
+  
+  // Get a real transaction hash for the link (closest match)
+  const tx = getTransactionByAmount(parsedAmount);
+  const shortHash = tx.shortHash;
+  const link = tx.link;
+  
+  // 70% chance to be Anonymous, 30% chance to ping a real user
+  const isSenderAnonymous = Math.random() < 0.7;
+  const isReceiverAnonymous = Math.random() < 0.7;
   
   let sender = 'Anonymous';
   let receiver = 'Anonymous';
@@ -429,31 +438,60 @@ function generateRandomProof() {
     receiver = `<@${randomUserId}>`;
   }
   
+  // Random trade message variations
+  const tradeMessages = [
+    `**${ltcAmount} LTC** ($${usdAmount} USD)`,
+    `💰 **${ltcAmount} LTC** | $${usdAmount} USD`,
+    `✅ Trade completed: ${ltcAmount} LTC ($${usdAmount})`,
+    `🔄 ${ltcAmount} LTC → $${usdAmount}`,
+    `📦 ${ltcAmount} LTC · $${usdAmount} USD`,
+    `💎 ${ltcAmount} LTC ($${usdAmount}) - Escrow complete`,
+    `🎮 Game trade: ${ltcAmount} LTC for $${usdAmount}`,
+    `🛡️ GamerProtect: ${ltcAmount} LTC ($${usdAmount})`,
+    `⚡ Fast trade: ${ltcAmount} LTC ($${usdAmount})`,
+    `🔒 Escrow completed: ${ltcAmount} LTC · $${usdAmount}`
+  ];
+  
   return new EmbedBuilder()
     .setTitle('✅ Trade Completed')
     .setColor(0x9b59b6)
-    .setDescription(`**${ltcAmount} LTC** ($${usdAmount} USD)`)
+    .setDescription(tradeMessages[Math.floor(Math.random() * tradeMessages.length)])
     .addFields(
       { name: 'Sender', value: sender, inline: true },
       { name: 'Receiver', value: receiver, inline: true },
-      { name: 'Transaction', value: `[${shortHash}](${link})`, inline: true }
+      { name: 'Transaction', value: `[${shortHash}](${link})`, inline: true },
+      { name: 'Escrow', value: 'GamerProtect Secure', inline: true }
     )
     .setTimestamp();
 }
 
 async function startRandomProofGenerator() {
-  const channel = client.channels.cache.get(LOGS_CHANNEL_ID);
-  if (!channel) return;
-  const loop = () => {
+  const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
+  if (!logsChannel) {
+    console.log(`❌ Logs channel not found! ID: ${LOGS_CHANNEL_ID}`);
+    return;
+  }
+  
+  console.log(`✅ Random proof generator started in ${logsChannel.name}`);
+  
+  const scheduleNext = () => {
+    const minDelay = 60 * 1000;  // 1 minute minimum
+    const maxDelay = 15 * 60 * 1000;  // 15 minutes maximum
+    const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
+    
     setTimeout(async () => {
       try {
         const proof = generateRandomProof();
-        await channel.send({ embeds: [proof] });
-      } catch(e) {}
-      loop();
-    }, Math.random() * (480000 - 45000) + 45000);
+        await logsChannel.send({ embeds: [proof] });
+        console.log(`📊 Random proof posted: $${(Math.random() * 1500 + 2).toFixed(2)} at ${new Date().toLocaleTimeString()}`);
+      } catch (error) {
+        console.log(`❌ Error sending random proof: ${error.message}`);
+      }
+      scheduleNext();
+    }, randomDelay);
   };
-  loop();
+  
+  scheduleNext();
 }
 
 // ========== SEND PAYMENT INVOICE ==========
@@ -1122,7 +1160,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ========== RELEASE (DONE BY RECEIVER - RECEIVER ENTERS THEIR WALLET) ==========
+// ========== RELEASE (DONE BY RECEIVER) ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
   
@@ -1134,7 +1172,7 @@ client.on('interactionCreate', async interaction => {
     // ONLY RECEIVER can release funds
     if (interaction.user.id !== trade.receiverId) {
       return interaction.reply({ 
-        content: '❌ Only the Receiver (person who received the items) can release funds!', 
+        content: '❌ Only the Receiver can release funds!', 
         flags: 64 
       });
     }
@@ -1208,7 +1246,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ========== WALLET & COMPLETION (RECEIVER ENTERS THEIR WALLET) ==========
+// ========== WALLET & COMPLETION ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isModalSubmit()) return;
   if (!interaction.customId.startsWith('wallet_')) return;
@@ -1218,14 +1256,12 @@ client.on('interactionCreate', async interaction => {
   const trade = trades.get(id);
   if (!trade) return;
   
-  // The wallet entered is the RECEIVER's wallet (where crypto gets sent)
   const receiverWallet = interaction.fields.getTextInputValue('wallet');
   const total = trade.totalUSD || trade.amountUSD;
   const tx = getTransactionByAmount(total);
   const sent = trade.amountCrypto;
   const usd = (parseFloat(sent) * (trade.exchangeRateUsed || liveRates[trade.crypto])).toFixed(2);
   
-  // Send confirmation to channel
   await interaction.channel.send({ embeds: [
     new EmbedBuilder()
       .setTitle('✅ Trade Completed Successfully!')
@@ -1240,7 +1276,7 @@ client.on('interactionCreate', async interaction => {
       .setFooter({ text: 'Thank you for using GamerProtect!' })
   ] });
   
-  await interaction.editReply('✅ Trade completed successfully! Funds have been sent to the receiver.');
+  await interaction.editReply('✅ Trade completed successfully!');
   
   // Add reputation to both parties
   const sender = getUser(trade.senderId);
@@ -1292,17 +1328,3 @@ client.on('interactionCreate', async interaction => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-// ========== TEST COMMAND ==========
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-  if (message.content === '!testproof' && message.author.id === OWNER_ID) {
-    const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
-    if (!logsChannel) {
-      return message.reply(`❌ Logs channel not found! ID: ${LOGS_CHANNEL_ID}`);
-    }
-    
-    const proof = generateRandomProof();
-    await logsChannel.send({ embeds: [proof] });
-    await message.reply('✅ Test proof sent to logs channel!');
-  }
-});
