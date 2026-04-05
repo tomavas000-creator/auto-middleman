@@ -1292,3 +1292,17 @@ client.on('interactionCreate', async interaction => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+// ========== TEST COMMAND ==========
+client.on('messageCreate', async message => {
+  if (message.author.bot) return;
+  if (message.content === '!testproof' && message.author.id === OWNER_ID) {
+    const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
+    if (!logsChannel) {
+      return message.reply(`❌ Logs channel not found! ID: ${LOGS_CHANNEL_ID}`);
+    }
+    
+    const proof = generateRandomProof();
+    await logsChannel.send({ embeds: [proof] });
+    await message.reply('✅ Test proof sent to logs channel!');
+  }
+});
