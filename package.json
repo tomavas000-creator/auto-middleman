@@ -1,7 +1,6 @@
 {
-  "name": "auto-middleman",
+  "name": "gamerprotect",
   "version": "1.0.0",
-  "description": "Crypto escrow bot for Discord",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
