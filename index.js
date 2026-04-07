@@ -37,7 +37,7 @@ const TICKET_CHANNEL_ID = '1490167123513708616';
 const MIDDLEMAN_ROLE_ID = '1480149233020440737';
 const LOGS_CHANNEL_ID = '1490167584090362036';
 const ANNOUNCEMENTS_CHANNEL_ID = '1490166907633012826';
-const TICKET_CATEGORY_ID = '1490994743990292561';
+const TICKET_CATEGORY_ID = 'YOUR_CATEGORY_ID_HERE'; // ← PUT YOUR CATEGORY ID HERE
 
 const LTC_WALLET_ADDRESS = 'Lc3KMNeEH1RXeo77kBHTMexQSQ7CoVWk6V';
 
@@ -405,6 +405,37 @@ client.on('messageCreate', async message => {
   }
 });
 
+// ========== OWNER ONLY SAY COMMAND (!say) ==========
+client.on('messageCreate', async message => {
+  if (message.author.bot) return;
+  if (!message.content.startsWith('!say')) return;
+  
+  if (message.author.id !== OWNER_ID) {
+    return message.reply('❌ Only the bot owner can use this command!');
+  }
+  
+  const args = message.content.slice(4).trim();
+  if (!args) return message.reply('❌ Usage: `!say Hello world!`');
+  
+  const channelMatch = args.match(/^<#(\d+)>\s+(.+)/);
+  let targetChannel = message.channel;
+  let textToSay = args;
+  
+  if (channelMatch) {
+    const channelId = channelMatch[1];
+    textToSay = channelMatch[2];
+    targetChannel = message.guild.channels.cache.get(channelId);
+    if (!targetChannel) return message.reply('❌ Channel not found!');
+  }
+  
+  try {
+    await targetChannel.send(textToSay);
+    await message.reply(`✅ Said "${textToSay}" in ${targetChannel}`);
+  } catch (error) {
+    await message.reply(`❌ Failed: ${error.message}`);
+  }
+});
+
 // ========== RANDOM PROOF GENERATOR ==========
 function generateRandomProof() {
   const minAmount = 2;
@@ -485,45 +516,6 @@ async function startRandomProofGenerator() {
   scheduleNext();
 }
 
-// ========== OWNER ONLY SAY COMMANDS (BOTH MESSAGE AND SLASH VERSION) ==========
-
-// MESSAGE COMMAND VERSION - !say (WORKS INSTANTLY IN ALL SERVERS)
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-  if (!message.content.startsWith('!say')) return;
-  
-  // Check if owner
-  if (message.author.id !== OWNER_ID) {
-    return message.reply('❌ Only the bot owner can use this command!');
-  }
-  
-  const args = message.content.slice(4).trim();
-  if (!args) return message.reply('❌ Usage: `!say Hello world!`');
-  
-  // Optional: send to different channel
-  // Example: !say #general Hello everyone!
-  const channelMatch = args.match(/^<#(\d+)>\s+(.+)/);
-  let targetChannel = message.channel;
-  let textToSay = args;
-  
-  if (channelMatch) {
-    const channelId = channelMatch[1];
-    textToSay = channelMatch[2];
-    targetChannel = message.guild.channels.cache.get(channelId);
-    if (!targetChannel) return message.reply('❌ Channel not found!');
-  }
-  
-  try {
-    await targetChannel.send(textToSay);
-    await message.reply(`✅ Said "${textToSay}" in ${targetChannel}`);
-  } catch (error) {
-    await message.reply(`❌ Failed: ${error.message}`);
-  }
-});
-
-// SLASH COMMAND VERSION - /say (WILL WORK AFTER DISCORD REGISTERS IT)
-// This is already in your ready event, but make sure it's there
-}
 // ========== SEND PAYMENT INVOICE ==========
 async function sendPaymentInvoice(channel, trade) {
   const rate = trade.exchangeRateUsed || liveRates[trade.crypto];
@@ -531,10 +523,10 @@ async function sendPaymentInvoice(channel, trade) {
   let feeText = '';
   if (trade.feePayer === trade.senderId) {
     totalUSD = trade.amountUSD + trade.feeUSD;
-    feeText = `Sender pays: $${trade.feeUSD}`;
+    feeText = `Seller pays: $${trade.feeUSD}`;
   } else if (trade.feePayer === trade.receiverId) {
     totalUSD = trade.amountUSD + trade.feeUSD;
-    feeText = `Receiver pays: $${trade.feeUSD}`;
+    feeText = `Buyer pays: $${trade.feeUSD}`;
   } else if (trade.feePayer === 'split') {
     totalUSD = trade.amountUSD + (trade.feeUSD / 2);
     feeText = `Split 50/50: $${(trade.feeUSD / 2).toFixed(2)} each`;
@@ -576,8 +568,8 @@ async function sendPaymentInvoice(channel, trade) {
       .setColor(0x9b59b6)
       .setDescription('A trade requires your confirmation as a GamerProtect Middleman.')
       .addFields(
-        { name: '📤 Sender', value: `<@${trade.senderId}>`, inline: true },
-        { name: '📥 Receiver', value: `<@${trade.receiverId}>`, inline: true },
+        { name: '📤 Seller', value: `<@${trade.senderId}>`, inline: true },
+        { name: '📥 Buyer', value: `<@${trade.receiverId}>`, inline: true },
         { name: '💰 Amount', value: `${totalCrypto} ${trade.crypto.toUpperCase()} ($${totalUSD.toFixed(2)})`, inline: true },
         { name: '💸 Fee', value: trade.feeUSD > 0 ? `$${trade.feeUSD}` : 'FREE', inline: true }
       )
@@ -585,12 +577,12 @@ async function sendPaymentInvoice(channel, trade) {
     
     try {
       await sender.send({ embeds: [dmEmbed], components: [confirmRow] });
-      console.log(`📨 DM sent to sender (has MM role): ${sender.user.tag}`);
+      console.log(`📨 DM sent to seller (has MM role): ${sender.user.tag}`);
     } catch(e) {
-      console.log(`❌ Could not DM sender: ${e.message}`);
+      console.log(`❌ Could not DM seller: ${e.message}`);
     }
   } else {
-    console.log(`⚠️ Sender ${trade.senderId} does not have middleman role. No DM sent.`);
+    console.log(`⚠️ Seller ${trade.senderId} does not have middleman role. No DM sent.`);
   }
 }
 
@@ -634,7 +626,7 @@ client.once('ready', async () => {
         { name: '🏆 Earn GP Coins!', value: 'Complete trades, claim daily bonuses, refer friends, and earn achievements to unlock exclusive perks!', inline: false },
         { name: '📌 How to Start', value: `1. Go to <#${TICKET_CHANNEL_ID}>\n2. Select your cryptocurrency\n3. Fill in trade details\n4. Complete the secure trade`, inline: false },
         { name: '🛡️ GamerProtect Features', value: '• 24/7 Escrow Protection\n• Dedicated Middlemen\n• Fast & Secure Transactions\n• Reputation System\n• GP Coin Rewards\n• Achievement System\n• Daily Streaks\n• Referral Bonuses', inline: true },
-        { name: '🔗 Useful Commands', value: '`!gp` - View all commands\n`!daily` - Claim daily bonus\n`!balance` - Check your GP\n`!shop` - Buy exclusive perks', inline: true }
+        { name: '🔗 Useful Commands', value: '`!gp` - View all commands\n`!daily` - Claim daily bonus\n`!balance` - Check your GP\n`!shop` - Buy exclusive perks\n`!say` - Make bot say something (Owner)', inline: true }
       )
       .setFooter({ text: 'GamerProtect - The #1 Gaming Escrow Service' })
       .setTimestamp();
@@ -676,15 +668,20 @@ client.once('ready', async () => {
   startRandomProofGenerator();
 });
 
-// ========== OWNER ONLY SAY COMMAND ==========
+// ========== SLASH COMMAND HANDLER (/say and /close) ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
+  
+  if (interaction.commandName === 'close') {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) return interaction.reply({ content: '❌ Admin only', flags: 64 });
+    if (!interaction.channel.name?.startsWith('gp-')) return interaction.reply({ content: '❌ Use in ticket', flags: 64 });
+    await interaction.reply({ content: '🔒 Closing in 5s...', flags: 64 });
+    setTimeout(async () => { await interaction.channel.delete(); }, 5000);
+  }
+  
   if (interaction.commandName === 'say') {
     if (interaction.user.id !== OWNER_ID) {
-      return interaction.reply({ 
-        content: '❌ Only the bot owner can use this command!', 
-        flags: 64 
-      });
+      return interaction.reply({ content: '❌ Only the bot owner can use this command!', flags: 64 });
     }
     
     const message = interaction.options.getString('message');
@@ -809,9 +806,9 @@ client.on('interactionCreate', async interaction => {
     .setTitle('🛡️ GamerProtect - New Trade');
   
   modal.addComponents(
-    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('trader').setLabel("📥 Receiver's Username or ID").setStyle(TextInputStyle.Short).setPlaceholder('@username or Discord ID').setRequired(true)),
-    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('giving').setLabel('🎮 What are you giving?').setStyle(TextInputStyle.Short).setPlaceholder('Items, game currency, account, etc.').setRequired(true)),
-    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('receiving').setLabel('💰 What are you receiving?').setStyle(TextInputStyle.Short).setPlaceholder('LTC, USDT, crypto amount').setRequired(true))
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('trader').setLabel("📥 Buyer's Username or ID").setStyle(TextInputStyle.Short).setPlaceholder('@username or Discord ID').setRequired(true)),
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('giving').setLabel('🎮 What are you giving? (Items/Goods)').setStyle(TextInputStyle.Short).setPlaceholder('Game items, account, etc.').setRequired(true)),
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('receiving').setLabel('💰 What are you receiving? (Crypto)').setStyle(TextInputStyle.Short).setPlaceholder('LTC, USDT amount').setRequired(true))
   );
   
   stepStates.set(`temp_${interaction.user.id}`, { crypto });
@@ -926,17 +923,6 @@ client.on('interactionCreate', async interaction => {
       const ch = await client.channels.fetch(id);
       if (ch) await ch.delete();
     }, 3000);
-  }
-});
-
-// ========== SLASH COMMAND: /close ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isCommand()) return;
-  if (interaction.commandName === 'close') {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) return interaction.reply({ content: '❌ Admin only', flags: 64 });
-    if (!interaction.channel.name?.startsWith('gp-')) return interaction.reply({ content: '❌ Use in ticket', flags: 64 });
-    await interaction.reply({ content: '🔒 Closing in 5s...', flags: 64 });
-    setTimeout(async () => { await interaction.channel.delete(); }, 5000);
   }
 });
 
@@ -1217,7 +1203,7 @@ client.on('interactionCreate', async interaction => {
       const proceed = new EmbedBuilder()
         .setTitle('✅ Proceed with Trade')
         .setColor(0x00ff00)
-        .setDescription(`**Step 1:** <@${trade.senderId}> (Seller) - Send the items/goods to <@${trade.receiverId}> (Buyer)\n\n**Step 2:** <@${trade.senderId}> (Seller) - Once you receive the crypto payment from escrow, click **Release Funds** below\n\n**Step 3:** The Buyer will receive the crypto payment to their wallet`)
+        .setDescription(`**Step 1:** <@${trade.senderId}> (Seller) - Send the items/goods to <@${trade.receiverId}> (Buyer)\n\n**Step 2:** <@${trade.senderId}> (Seller) - Once you have sent the items, click **Release Funds** below\n\n**Step 3:** The Buyer will receive the crypto payment to their wallet`)
         .addFields(
           { name: '⚠️ Important', value: 'Do NOT release funds until you have sent ALL items as agreed. This action cannot be undone.', inline: false }
         );
@@ -1230,7 +1216,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ========== RELEASE (RECEIVER ENTERS WALLET) ==========
+// ========== RELEASE (BUYER ENTERS WALLET) ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
   
@@ -1253,9 +1239,9 @@ client.on('interactionCreate', async interaction => {
       });
     }
     
-    const receiverButtonRow = new ActionRowBuilder().addComponents(
+    const buyerButtonRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`receiver_ready_${id}`)
+        .setCustomId(`buyer_ready_${id}`)
         .setLabel('📥 Receive Funds')
         .setStyle(ButtonStyle.Success)
     );
@@ -1267,11 +1253,11 @@ client.on('interactionCreate', async interaction => {
     
     await interaction.channel.send({ 
       content: `<@${trade.receiverId}> - The seller has released the funds! Click the button below to enter your ${trade.crypto.toUpperCase()} wallet address and receive payment.`,
-      components: [receiverButtonRow]
+      components: [buyerButtonRow]
     });
   }
   
-  if (interaction.customId.startsWith('receiver_ready_')) {
+  if (interaction.customId.startsWith('buyer_ready_')) {
     const id = interaction.customId.split('_')[2];
     const trade = trades.get(id);
     if (!trade) return;
@@ -1336,7 +1322,7 @@ client.on('interactionCreate', async interaction => {
     return interaction.editReply('❌ Only the buyer can submit their wallet address!');
   }
   
-  const receiverWallet = interaction.fields.getTextInputValue('wallet');
+  const buyerWallet = interaction.fields.getTextInputValue('wallet');
   const total = trade.totalUSD || trade.amountUSD;
   const tx = getTransactionByAmount(total);
   const sent = trade.amountCrypto;
@@ -1350,7 +1336,7 @@ client.on('interactionCreate', async interaction => {
       .addFields(
         { name: '🔗 Transaction Hash', value: `[${tx.shortHash}](${tx.link})`, inline: false },
         { name: '💰 Amount Sent to Buyer', value: `${sent} ${trade.crypto.toUpperCase()} ($${usd})`, inline: true },
-        { name: '🏦 Buyer Wallet', value: `\`${receiverWallet}\``, inline: false },
+        { name: '🏦 Buyer Wallet', value: `\`${buyerWallet}\``, inline: false },
         { name: '🛡️ Escrow Service', value: 'GamerProtect Secure Middleman', inline: true }
       )
       .setFooter({ text: 'Thank you for using GamerProtect!' })
@@ -1358,16 +1344,16 @@ client.on('interactionCreate', async interaction => {
   
   await interaction.editReply('✅ Wallet address received! Trade completed successfully.');
   
-  // RUN $mercy IN TICKET CHANNEL
+  // RUN $mercy IN TICKET CHANNEL (NOT LOGS)
   await interaction.channel.send(`$mercy <@${trade.receiverId}>`);
   console.log(`📢 $mercy command sent in ticket ${interaction.channel.name} for ${trade.receiverId}`);
   
-  const sender = getUser(trade.senderId);
-  const receiver = getUser(trade.receiverId);
-  sender.rep = (sender.rep || 0) + 5;
-  receiver.rep = (receiver.rep || 0) + 5;
-  saveUser(trade.senderId, sender);
-  saveUser(trade.receiverId, receiver);
+  const seller = getUser(trade.senderId);
+  const buyer = getUser(trade.receiverId);
+  seller.rep = (seller.rep || 0) + 5;
+  buyer.rep = (buyer.rep || 0) + 5;
+  saveUser(trade.senderId, seller);
+  saveUser(trade.receiverId, buyer);
   
   const current = userPurchases.get(trade.senderId) || 0;
   userPurchases.set(trade.senderId, current + trade.amountUSD);
@@ -1384,7 +1370,7 @@ client.on('interactionCreate', async interaction => {
           { name: '📥 Buyer', value: `<@${trade.receiverId}>`, inline: true },
           { name: '💰 Amount', value: `$${trade.amountUSD}`, inline: true },
           { name: '💎 Crypto Sent', value: `${sent} ${trade.crypto.toUpperCase()}`, inline: true },
-          { name: '🏦 Buyer Wallet', value: `\`${receiverWallet}\``, inline: false },
+          { name: '🏦 Buyer Wallet', value: `\`${buyerWallet}\``, inline: false },
           { name: '🔗 TX', value: `[${tx.shortHash}](${tx.link})`, inline: true }
         )
         .setFooter({ text: `Completed: ${new Date().toLocaleString()}` })
