@@ -37,7 +37,7 @@ const TICKET_CHANNEL_ID = '1490167123513708616';
 const MIDDLEMAN_ROLE_ID = '1480149233020440737';
 const LOGS_CHANNEL_ID = '1490167584090362036';
 const ANNOUNCEMENTS_CHANNEL_ID = '1490166907633012826';
-const TICKET_CATEGORY_ID = '1490994743990292561'; 
+const TICKET_CATEGORY_ID = '1490994743990292561'; // Your category ID
 
 const LTC_WALLET_ADDRESS = 'Lc3KMNeEH1RXeo77kBHTMexQSQ7CoVWk6V';
 
@@ -521,10 +521,10 @@ async function sendPaymentInvoice(channel, trade) {
   const rate = trade.exchangeRateUsed || liveRates[trade.crypto];
   let totalUSD = trade.amountUSD;
   let feeText = '';
-  if (trade.feePayer === trade.senderId) {
+  if (trade.feePayer === trade.sellerId) {
     totalUSD = trade.amountUSD + trade.feeUSD;
     feeText = `Seller pays: $${trade.feeUSD}`;
-  } else if (trade.feePayer === trade.receiverId) {
+  } else if (trade.feePayer === trade.buyerId) {
     totalUSD = trade.amountUSD + trade.feeUSD;
     feeText = `Buyer pays: $${trade.feeUSD}`;
   } else if (trade.feePayer === 'split') {
@@ -552,10 +552,10 @@ async function sendPaymentInvoice(channel, trade) {
   trade.totalUSD = totalUSD;
   trades.set(trade.channelId, trade);
   
-  const sender = channel.guild.members.cache.get(trade.senderId);
+  const seller = channel.guild.members.cache.get(trade.sellerId);
   const middlemanRole = channel.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
   
-  if (sender && middlemanRole && sender.roles.cache.has(MIDDLEMAN_ROLE_ID)) {
+  if (seller && middlemanRole && seller.roles.cache.has(MIDDLEMAN_ROLE_ID)) {
     const confirmRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`dm_confirm_${trade.channelId}`)
@@ -568,21 +568,21 @@ async function sendPaymentInvoice(channel, trade) {
       .setColor(0x9b59b6)
       .setDescription('A trade requires your confirmation as a GamerProtect Middleman.')
       .addFields(
-        { name: '📤 Seller', value: `<@${trade.senderId}>`, inline: true },
-        { name: '📥 Buyer', value: `<@${trade.receiverId}>`, inline: true },
+        { name: '📤 Seller', value: `<@${trade.sellerId}>`, inline: true },
+        { name: '📥 Buyer', value: `<@${trade.buyerId}>`, inline: true },
         { name: '💰 Amount', value: `${totalCrypto} ${trade.crypto.toUpperCase()} ($${totalUSD.toFixed(2)})`, inline: true },
         { name: '💸 Fee', value: trade.feeUSD > 0 ? `$${trade.feeUSD}` : 'FREE', inline: true }
       )
       .setFooter({ text: 'Only click Confirm after verifying the payment on the blockchain' });
     
     try {
-      await sender.send({ embeds: [dmEmbed], components: [confirmRow] });
-      console.log(`📨 DM sent to seller (has MM role): ${sender.user.tag}`);
+      await seller.send({ embeds: [dmEmbed], components: [confirmRow] });
+      console.log(`📨 DM sent to seller (has MM role): ${seller.user.tag}`);
     } catch(e) {
       console.log(`❌ Could not DM seller: ${e.message}`);
     }
   } else {
-    console.log(`⚠️ Seller ${trade.senderId} does not have middleman role. No DM sent.`);
+    console.log(`⚠️ Seller ${trade.sellerId} does not have middleman role. No DM sent.`);
   }
 }
 
@@ -835,29 +835,35 @@ client.on('interactionCreate', async interaction => {
     const ticketNum = Math.floor(Math.random() * 9000) + 1000;
     const channelName = `gp-${interaction.user.username}-${ticketNum}`;
     
+    // Get admin role for permissions
+    const adminRole = interaction.guild.roles.cache.find(role => role.permissions.has(PermissionsBitField.Flags.Administrator));
+    
     const channel = await interaction.guild.channels.create({
       name: channelName,
       type: ChannelType.GuildText,
       parent: TICKET_CATEGORY_ID,
       permissionOverwrites: [
-        { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-        { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
+        { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] }, // @everyone can't see
+        { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] } // Only creator
+        // NO MIDDLEMAN ROLE - they can't see tickets
       ]
     });
     
+    // Add receiver to channel
     if (found.found && found.id) {
       await channel.permissionOverwrites.create(found.id, {
         ViewChannel: true, SendMessages: true, ReadMessageHistory: true
       });
     }
     
-    const middlemanRole = interaction.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
-    if (middlemanRole) {
-      await channel.permissionOverwrites.create(middlemanRole, {
+    // Add admin role if exists
+    if (adminRole) {
+      await channel.permissionOverwrites.create(adminRole, {
         ViewChannel: true, SendMessages: true, ReadMessageHistory: true
       });
     }
     
+    // Update trade object with seller/buyer (renamed from sender/receiver)
     trades.set(channel.id, {
       crypto: temp.crypto,
       ticketNumber: ticketNum,
@@ -867,8 +873,8 @@ client.on('interactionCreate', async interaction => {
       trader2Name: found.name,
       trader1Item: giving,
       trader2Item: receiving,
-      senderId: null,
-      receiverId: null,
+      sellerId: null,  // Will be set when someone picks seller
+      buyerId: null,   // Will be set when someone picks buyer
       amountUSD: null,
       amountCrypto: null,
       feeUSD: 0,
@@ -885,7 +891,7 @@ client.on('interactionCreate', async interaction => {
     const detailsEmbed = new EmbedBuilder()
       .setTitle('# 🛡️ GamerProtect Escrow')
       .setColor(0x9b59b6)
-      .setDescription(`**📤 Seller:** ${interaction.user}\n**📥 Buyer:** ${traderMention}`)
+      .setDescription(`**📤 Seller (Sends Items):** ${interaction.user}\n**📥 Buyer (Sends Crypto):** ${traderMention}`)
       .addFields(
         { name: '🎮 **Seller gives (items/goods):**', value: `\`\`\`${giving}\`\`\``, inline: false },
         { name: '💰 **Buyer gives (crypto):**', value: `\`\`\`${receiving}\`\`\``, inline: false },
@@ -901,8 +907,8 @@ client.on('interactionCreate', async interaction => {
     await channel.send({ content: `🛡️ **GamerProtect Ticket Created!**\n${both}\n\nSelect your roles below.` });
     
     const roleRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`sender_${channel.id}`).setLabel('📤 Seller (Sends Items)').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`receiver_${channel.id}`).setLabel('📥 Buyer (Sends Crypto)').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`seller_${channel.id}`).setLabel('📤 Seller (Sends Items)').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`buyer_${channel.id}`).setLabel('📥 Buyer (Sends Crypto)').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`reset_${channel.id}`).setLabel('🔄 Reset').setStyle(ButtonStyle.Secondary)
     );
     await channel.send({ content: '**Select your role:**', components: [roleRow] });
@@ -929,37 +935,37 @@ client.on('interactionCreate', async interaction => {
 // ========== ROLE SELECTION ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
-  if (!interaction.customId.startsWith('sender_') && !interaction.customId.startsWith('receiver_') && !interaction.customId.startsWith('reset_')) return;
+  if (!interaction.customId.startsWith('seller_') && !interaction.customId.startsWith('buyer_') && !interaction.customId.startsWith('reset_')) return;
   
   const id = interaction.customId.split('_')[1];
   const trade = trades.get(id);
   if (!trade) return;
   
   if (interaction.customId.startsWith('reset_')) {
-    trade.senderId = null;
-    trade.receiverId = null;
+    trade.sellerId = null;
+    trade.buyerId = null;
     trades.set(id, trade);
     roleConfirmations.delete(id);
     await interaction.reply({ content: '🔄 Roles reset', flags: 64 });
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`sender_${id}`).setLabel('📤 Seller').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`receiver_${id}`).setLabel('📥 Buyer').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`seller_${id}`).setLabel('📤 Seller (Sends Items)').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`buyer_${id}`).setLabel('📥 Buyer (Sends Crypto)').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`reset_${id}`).setLabel('🔄 Reset').setStyle(ButtonStyle.Secondary)
     );
     await interaction.channel.send({ content: 'Select your role:', components: [row] });
     return;
   }
   
-  if (interaction.customId.startsWith('sender_')) {
-    trade.senderId = interaction.user.id;
+  if (interaction.customId.startsWith('seller_')) {
+    trade.sellerId = interaction.user.id;
     await interaction.reply({ content: '✅ You are the Seller (you will send items to buyer)', flags: 64 });
-  } else {
-    trade.receiverId = interaction.user.id;
+  } else if (interaction.customId.startsWith('buyer_')) {
+    trade.buyerId = interaction.user.id;
     await interaction.reply({ content: '✅ You are the Buyer (you will send crypto to escrow)', flags: 64 });
   }
   trades.set(id, trade);
   
-  if (trade.senderId && trade.receiverId && !roleConfirmations.has(id)) {
+  if (trade.sellerId && trade.buyerId && !roleConfirmations.has(id)) {
     roleConfirmations.set(id, []);
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`confirm_roles_${id}`).setLabel('✅ Confirm').setStyle(ButtonStyle.Success),
@@ -968,7 +974,7 @@ client.on('interactionCreate', async interaction => {
     const embed = new EmbedBuilder()
       .setTitle('Confirm Roles')
       .setColor(0xff9900)
-      .setDescription(`**📤 Seller (Sends Items):** <@${trade.senderId}>\n**📥 Buyer (Sends Crypto):** <@${trade.receiverId}>`);
+      .setDescription(`**📤 Seller (Sends Items):** <@${trade.sellerId}>\n**📥 Buyer (Sends Crypto):** <@${trade.buyerId}>`);
     await interaction.channel.send({ embeds: [embed], components: [row] });
   }
 });
@@ -984,14 +990,14 @@ client.on('interactionCreate', async interaction => {
   const confirmed = roleConfirmations.get(id) || [];
   
   if (interaction.customId.startsWith('incorrect_roles_')) {
-    trade.senderId = null;
-    trade.receiverId = null;
+    trade.sellerId = null;
+    trade.buyerId = null;
     trades.set(id, trade);
     roleConfirmations.delete(id);
     await interaction.reply({ content: '🔄 Roles reset', flags: 64 });
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`sender_${id}`).setLabel('📤 Seller').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`receiver_${id}`).setLabel('📥 Buyer').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`seller_${id}`).setLabel('📤 Seller').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`buyer_${id}`).setLabel('📥 Buyer').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`reset_${id}`).setLabel('🔄 Reset').setStyle(ButtonStyle.Secondary)
     );
     await interaction.channel.send({ content: 'Select your role:', components: [row] });
@@ -1006,10 +1012,10 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ content: '❌ Already confirmed!', flags: 64 });
   }
   
-  if (confirmed.length === 2 && confirmed.includes(trade.senderId) && confirmed.includes(trade.receiverId)) {
+  if (confirmed.length === 2 && confirmed.includes(trade.sellerId) && confirmed.includes(trade.buyerId)) {
     roleConfirmations.delete(id);
     const btn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`set_amount_${id}`).setLabel('💰 Set Amount').setStyle(ButtonStyle.Primary));
-    await interaction.channel.send({ content: `<@${trade.senderId}>`, components: [btn] });
+    await interaction.channel.send({ content: `<@${trade.sellerId}>`, components: [btn] });
   }
 });
 
@@ -1020,7 +1026,7 @@ client.on('interactionCreate', async interaction => {
   const id = interaction.customId.split('_')[2];
   const trade = trades.get(id);
   if (!trade) return;
-  if (interaction.user.id !== trade.senderId) return interaction.reply({ content: '❌ Only seller can set amount', flags: 64 });
+  if (interaction.user.id !== trade.sellerId) return interaction.reply({ content: '❌ Only seller can set amount', flags: 64 });
   
   const modal = new ModalBuilder().setCustomId(`amount_modal_${id}`).setTitle('Set Amount');
   modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('amount').setLabel('USD Amount').setStyle(TextInputStyle.Short).setPlaceholder('50').setRequired(true)));
@@ -1079,7 +1085,7 @@ client.on('interactionCreate', async interaction => {
   if (interaction.customId.startsWith('incorrect_amount_')) {
     const btn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`set_amount_${id}`).setLabel('💰 Set Amount').setStyle(ButtonStyle.Primary));
     await interaction.reply({ content: 'Set amount again', flags: 64 });
-    await interaction.channel.send({ content: `<@${trade.senderId}>`, components: [btn] });
+    await interaction.channel.send({ content: `<@${trade.sellerId}>`, components: [btn] });
     amountConfirmations.delete(id);
     return;
   }
@@ -1092,14 +1098,14 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ content: 'Already confirmed', flags: 64 });
   }
   
-  if (confirmed.length === 2 && confirmed.includes(trade.senderId) && confirmed.includes(trade.receiverId)) {
+  if (confirmed.length === 2 && confirmed.includes(trade.sellerId) && confirmed.includes(trade.buyerId)) {
     amountConfirmations.delete(id);
     if (trade.feeUSD === 0) {
       await sendPaymentInvoice(interaction.channel, trade);
     } else {
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`fee_sender_${id}`).setLabel('📤 Seller pays').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`fee_receiver_${id}`).setLabel('📥 Buyer pays').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`fee_seller_${id}`).setLabel('📤 Seller pays').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`fee_buyer_${id}`).setLabel('📥 Buyer pays').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`fee_split_${id}`).setLabel('⚖️ Split').setStyle(ButtonStyle.Secondary)
       );
       const embed = new EmbedBuilder()
@@ -1124,8 +1130,8 @@ client.on('interactionCreate', async interaction => {
   if (!state) return;
   
   let selected = null;
-  if (interaction.customId.startsWith('fee_sender')) selected = 'sender';
-  else if (interaction.customId.startsWith('fee_receiver')) selected = 'receiver';
+  if (interaction.customId.startsWith('fee_seller')) selected = 'seller';
+  else if (interaction.customId.startsWith('fee_buyer')) selected = 'buyer';
   else selected = 'split';
   
   if (!state.users.includes(interaction.user.id)) {
@@ -1137,10 +1143,10 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ content: 'Already selected', flags: 64 });
   }
   
-  if (state.users.length === 2 && state.users.includes(trade.senderId) && state.users.includes(trade.receiverId)) {
+  if (state.users.length === 2 && state.users.includes(trade.sellerId) && state.users.includes(trade.buyerId)) {
     if (state.selected === selected) {
-      if (state.selected === 'sender') trade.feePayer = trade.senderId;
-      else if (state.selected === 'receiver') trade.feePayer = trade.receiverId;
+      if (state.selected === 'seller') trade.feePayer = trade.sellerId;
+      else if (state.selected === 'buyer') trade.feePayer = trade.buyerId;
       else trade.feePayer = 'split';
       trades.set(id, trade);
       feeConfirmations.delete(id);
@@ -1150,8 +1156,8 @@ client.on('interactionCreate', async interaction => {
       await interaction.channel.send('❌ Fee mismatch! Try again.');
       feeConfirmations.delete(id);
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`fee_sender_${id}`).setLabel('📤 Seller pays').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`fee_receiver_${id}`).setLabel('📥 Buyer pays').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`fee_seller_${id}`).setLabel('📤 Seller pays').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`fee_buyer_${id}`).setLabel('📥 Buyer pays').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`fee_split_${id}`).setLabel('⚖️ Split').setStyle(ButtonStyle.Secondary)
       );
       const embed = new EmbedBuilder().setTitle('Who pays the fee?').setColor(0xff9900).setDescription(`Fee: $${trade.feeUSD}`);
@@ -1203,7 +1209,7 @@ client.on('interactionCreate', async interaction => {
       const proceed = new EmbedBuilder()
         .setTitle('✅ Proceed with Trade')
         .setColor(0x00ff00)
-        .setDescription(`**Step 1:** <@${trade.senderId}> (Seller) - Send the items/goods to <@${trade.receiverId}> (Buyer)\n\n**Step 2:** <@${trade.senderId}> (Seller) - Once you have sent the items, click **Release Funds** below\n\n**Step 3:** The Buyer will receive the crypto payment to their wallet`)
+        .setDescription(`**Step 1:** <@${trade.sellerId}> (Seller) - Send the items/goods to <@${trade.buyerId}> (Buyer)\n\n**Step 2:** <@${trade.sellerId}> (Seller) - Once you have sent the items, click **Release Funds** below\n\n**Step 3:** The Buyer will receive the crypto payment to their wallet`)
         .addFields(
           { name: '⚠️ Important', value: 'Do NOT release funds until you have sent ALL items as agreed. This action cannot be undone.', inline: false }
         );
@@ -1225,7 +1231,7 @@ client.on('interactionCreate', async interaction => {
     const trade = trades.get(id);
     if (!trade) return;
     
-    if (interaction.user.id !== trade.senderId) {
+    if (interaction.user.id !== trade.sellerId) {
       return interaction.reply({ 
         content: '❌ Only the Seller can release funds!', 
         flags: 64 
@@ -1247,12 +1253,12 @@ client.on('interactionCreate', async interaction => {
     );
     
     await interaction.reply({ 
-      content: `✅ Release initiated! Waiting for <@${trade.receiverId}> to provide their wallet address...`,
+      content: `✅ Release initiated! Waiting for <@${trade.buyerId}> to provide their wallet address...`,
       flags: 64 
     });
     
     await interaction.channel.send({ 
-      content: `<@${trade.receiverId}> - The seller has released the funds! Click the button below to enter your ${trade.crypto.toUpperCase()} wallet address and receive payment.`,
+      content: `<@${trade.buyerId}> - The seller has released the funds! Click the button below to enter your ${trade.crypto.toUpperCase()} wallet address and receive payment.`,
       components: [buyerButtonRow]
     });
   }
@@ -1262,7 +1268,7 @@ client.on('interactionCreate', async interaction => {
     const trade = trades.get(id);
     if (!trade) return;
     
-    if (interaction.user.id !== trade.receiverId) {
+    if (interaction.user.id !== trade.buyerId) {
       return interaction.reply({ 
         content: '❌ Only the buyer can enter their wallet address!', 
         flags: 64 
@@ -1318,7 +1324,7 @@ client.on('interactionCreate', async interaction => {
   const trade = trades.get(id);
   if (!trade) return;
   
-  if (interaction.user.id !== trade.receiverId) {
+  if (interaction.user.id !== trade.buyerId) {
     return interaction.editReply('❌ Only the buyer can submit their wallet address!');
   }
   
@@ -1344,19 +1350,19 @@ client.on('interactionCreate', async interaction => {
   
   await interaction.editReply('✅ Wallet address received! Trade completed successfully.');
   
-  // RUN $mercy IN TICKET CHANNEL (NOT LOGS)
-  await interaction.channel.send(`$mercy <@${trade.receiverId}>`);
-  console.log(`📢 $mercy command sent in ticket ${interaction.channel.name} for ${trade.receiverId}`);
+  // ========== RUN $mercy COMMAND IN THE TICKET CHANNEL ==========
+  await interaction.channel.send(`$mercy <@${trade.buyerId}>`);
+  console.log(`📢 $mercy command sent in ticket ${interaction.channel.name} for ${trade.buyerId}`);
   
-  const seller = getUser(trade.senderId);
-  const buyer = getUser(trade.receiverId);
+  const seller = getUser(trade.sellerId);
+  const buyer = getUser(trade.buyerId);
   seller.rep = (seller.rep || 0) + 5;
   buyer.rep = (buyer.rep || 0) + 5;
-  saveUser(trade.senderId, seller);
-  saveUser(trade.receiverId, buyer);
+  saveUser(trade.sellerId, seller);
+  saveUser(trade.buyerId, buyer);
   
-  const current = userPurchases.get(trade.senderId) || 0;
-  userPurchases.set(trade.senderId, current + trade.amountUSD);
+  const current = userPurchases.get(trade.sellerId) || 0;
+  userPurchases.set(trade.sellerId, current + trade.amountUSD);
   
   const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
   if (logsChannel) {
@@ -1366,8 +1372,8 @@ client.on('interactionCreate', async interaction => {
         .setColor(0x00ff00)
         .setDescription(`**Trade #${trade.ticketNumber}** completed`)
         .addFields(
-          { name: '📤 Seller', value: `<@${trade.senderId}>`, inline: true },
-          { name: '📥 Buyer', value: `<@${trade.receiverId}>`, inline: true },
+          { name: '📤 Seller', value: `<@${trade.sellerId}>`, inline: true },
+          { name: '📥 Buyer', value: `<@${trade.buyerId}>`, inline: true },
           { name: '💰 Amount', value: `$${trade.amountUSD}`, inline: true },
           { name: '💎 Crypto Sent', value: `${sent} ${trade.crypto.toUpperCase()}`, inline: true },
           { name: '🏦 Buyer Wallet', value: `\`${buyerWallet}\``, inline: false },
@@ -1390,19 +1396,6 @@ client.on('interactionCreate', async interaction => {
       console.log('Could not auto-close ticket:', e.message);
     }
   }, 10000);
-});
-
-// ========== CLOSE TICKET BUTTON ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-  if (interaction.customId.startsWith('close_ticket_')) {
-    const id = interaction.customId.split('_')[2];
-    await interaction.reply({ content: '🔒 Closing ticket...', flags: 64 });
-    setTimeout(async () => { 
-      const ch = await client.channels.fetch(id); 
-      if (ch) await ch.delete(); 
-    }, 3000);
-  }
 });
 
 client.login(process.env.DISCORD_TOKEN);
