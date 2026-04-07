@@ -485,6 +485,45 @@ async function startRandomProofGenerator() {
   scheduleNext();
 }
 
+// ========== OWNER ONLY SAY COMMANDS (BOTH MESSAGE AND SLASH VERSION) ==========
+
+// MESSAGE COMMAND VERSION - !say (WORKS INSTANTLY IN ALL SERVERS)
+client.on('messageCreate', async message => {
+  if (message.author.bot) return;
+  if (!message.content.startsWith('!say')) return;
+  
+  // Check if owner
+  if (message.author.id !== OWNER_ID) {
+    return message.reply('❌ Only the bot owner can use this command!');
+  }
+  
+  const args = message.content.slice(4).trim();
+  if (!args) return message.reply('❌ Usage: `!say Hello world!`');
+  
+  // Optional: send to different channel
+  // Example: !say #general Hello everyone!
+  const channelMatch = args.match(/^<#(\d+)>\s+(.+)/);
+  let targetChannel = message.channel;
+  let textToSay = args;
+  
+  if (channelMatch) {
+    const channelId = channelMatch[1];
+    textToSay = channelMatch[2];
+    targetChannel = message.guild.channels.cache.get(channelId);
+    if (!targetChannel) return message.reply('❌ Channel not found!');
+  }
+  
+  try {
+    await targetChannel.send(textToSay);
+    await message.reply(`✅ Said "${textToSay}" in ${targetChannel}`);
+  } catch (error) {
+    await message.reply(`❌ Failed: ${error.message}`);
+  }
+});
+
+// SLASH COMMAND VERSION - /say (WILL WORK AFTER DISCORD REGISTERS IT)
+// This is already in your ready event, but make sure it's there
+}
 // ========== SEND PAYMENT INVOICE ==========
 async function sendPaymentInvoice(channel, trade) {
   const rate = trade.exchangeRateUsed || liveRates[trade.crypto];
