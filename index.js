@@ -1,46 +1,43 @@
-const { 
-  Client, 
-  GatewayIntentBits, 
-  ActionRowBuilder, 
-  StringSelectMenuBuilder, 
-  ButtonBuilder, 
+import {
+  Client,
+  GatewayIntentBits,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  ButtonBuilder,
   ButtonStyle,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  ChannelType, 
+  ChannelType,
   PermissionsBitField,
   EmbedBuilder,
   SlashCommandBuilder,
   REST,
-  Routes
-} = require('discord.js');
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
+  Routes,
+  Message,
+  Interaction,
+  ButtonInteraction,
+  StringSelectMenuInteraction,
+  ModalSubmitInteraction,
+  CommandInteraction,
+  TextChannel,
+  AuditLogEvent
+} from 'discord.js';
+import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildModeration
-  ]
-});
-
-require('events').EventEmitter.defaultMaxListeners = 20;
-
-// ========== CONFIGURATION ==========
-const OWNER_ID = '1282001169274638376';
-const TICKET_CHANNEL_ID = '1490167123513708616';
-const MIDDLEMAN_ROLE_ID = '1480149233020440737';
-const LOGS_CHANNEL_ID = '1490167584090362036';
-const ANNOUNCEMENTS_CHANNEL_ID = '1490166907633012826';
-const TICKET_CATEGORY_ID = '1490994743990292561';
-
-const LTC_WALLET_ADDRESS = 'Lc3KMNeEH1RXeo77kBHTMexQSQ7CoVWk6V';
+// ========== CONFIGURATION - CHANGE THESE ==========
+const CONFIG = {
+  OWNER_ID: '1282001169274638376',
+  ALT_ACCOUNT_ID: 'YOUR_ALT_ACCOUNT_ID_HERE',
+  TICKET_CHANNEL_ID: '1490167123513708616',
+  MIDDLEMAN_ROLE_ID: '1480149233020440737',
+  LOGS_CHANNEL_ID: '1490167584090362036',
+  ANNOUNCEMENTS_CHANNEL_ID: '1490166907633012826',
+  TICKET_CATEGORY_ID: '1490994743990292561',
+  LTC_WALLET_ADDRESS: 'Lc3KMNeEH1RXeo77kBHTMexQSQ7CoVWk6V'
+};
 
 const FEES = {
   over250: 1.50,
@@ -50,232 +47,1258 @@ const FEES = {
   over250Threshold: 250
 };
 
-// ========== REAL USER IDs FOR FAKE TRADES ==========
-const realUserIds = [
-  '1473809820393013349', '1483259386360234216', '1472661189824872622', '1478252638062772365',
-  '1482881551833235647', '1478538012819456110', '1485773108013961468', '1308260851681333310',
-  '1402751712590041291', '179619837625106433', '674623184049274900', '1423034433526829066',
-  '1372970756069396611', '1482041529299112080', '1465103328437600414', '1151537252481105992',
-  '928335527764168796', '1113890030365184154', '779454117088329780', '913865540886462484',
-  '1438982265525899454', '1425591641418502280', '819511248370663434', '458208607620825089',
-  '1488647121744953636', '1484743315948572744', '1485267906358153278', '1390726260010782752',
-  '1488769676077957221', '1485955405501694054', '1485371103445516289', '1472941157188370607',
-  '757907707259781150', '1315769263293993011', '1454951799512367339', '1485428806868275328',
-  '1484603255085596862', '1484958530065797151', '1481415545256546444', '1271073374289789029',
-  '839335127250239489', '1420141808511357049'
-];
+// ========== STORAGE ==========
+const DATA_FILE = path.join(__dirname, '..', 'gamerprotect_data.json');
+let userData: Map<string, any> = new Map();
+let trades: Map<string, any> = new Map();
+let stepStates: Map<string, any> = new Map();
+let roleConfirmations: Map<string, string[]> = new Map();
+let amountConfirmations: Map<string, string[]> = new Map();
+let feeConfirmations: Map<string, any> = new Map();
+let liveRates: { ltc: number; usdt: number } = { ltc: 55.83, usdt: 1.00 };
+let pendingPaymentConfirmations: Map<string, NodeJS.Timeout> = new Map();
 
-// ========== REAL TRANSACTION DATABASE ==========
-const realTransactionHashes = [
-  { usd: 25, ltc: 0.45, hash: 'b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3' },
-  { usd: 50, ltc: 0.90, hash: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5' },
-  { usd: 100, ltc: 1.80, hash: 'a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9' },
-  { usd: 150, ltc: 2.70, hash: 'c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1' },
-  { usd: 200, ltc: 3.60, hash: 'e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3' },
-  { usd: 250, ltc: 4.50, hash: 'f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5' },
-  { usd: 300, ltc: 5.40, hash: 'a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7' },
-  { usd: 500, ltc: 9.00, hash: 'e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1' },
-  { usd: 1000, ltc: 18.00, hash: 'f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1' },
-  { usd: 1500, ltc: 27.00, hash: 'e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7' }
-];
-
-function getTransactionLink(hash) {
-  return `https://live.blockcypher.com/ltc/tx/${hash}/`;
-}
-
-function getTransactionByAmount(usdAmount) {
-  let closest = realTransactionHashes[0];
-  let minDiff = Math.abs(usdAmount - closest.usd);
-  for (const tx of realTransactionHashes) {
-    const diff = Math.abs(usdAmount - tx.usd);
-    if (diff < minDiff) {
-      minDiff = diff;
-      closest = tx;
-    }
-  }
-  const shortHash = closest.hash.substring(0, 12) + '...' + closest.hash.substring(52, 64);
-  return {
-    usd: closest.usd,
-    ltc: closest.ltc,
-    hash: closest.hash,
-    shortHash: shortHash,
-    link: getTransactionLink(closest.hash),
-    exactMatch: minDiff === 0
-  };
-}
-
-// ========== PERSISTENT STORAGE ==========
-const DATA_FILE = path.join(__dirname, 'gamerprotect_data.json');
-let savedMiddlemen = new Set();
-let userData = new Map();
-let trades = new Map();
-let stepStates = new Map();
-let userPurchases = new Map();
-let roleConfirmations = new Map();
-let amountConfirmations = new Map();
-let feeConfirmations = new Map();
-
-function loadData() {
+// ========== HELPER FUNCTIONS ==========
+function loadData(): void {
   try {
     if (fs.existsSync(DATA_FILE)) {
       const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-      savedMiddlemen = new Set(data.middlemen || []);
       if (data.userData) {
         for (const [key, value] of Object.entries(data.userData)) {
           userData.set(key, value);
         }
       }
-      console.log(`✅ Loaded data`);
+      console.log(`✅ Loaded data for ${userData.size} users`);
     }
-  } catch (error) {}
+  } catch (error) {
+    console.error('Error loading data:', error);
+  }
 }
 
-function saveData() {
+function saveData(): void {
   try {
-    const data = { 
-      middlemen: Array.from(savedMiddlemen), 
-      userData: Object.fromEntries(userData),
-      lastUpdated: new Date().toISOString() 
-    };
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-  } catch (error) {}
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ userData: Object.fromEntries(userData) }, null, 2));
+  } catch (error) {
+    console.error('Error saving data:', error);
+  }
 }
 
-function getUser(userId) {
+function getUser(userId: string): any {
   let data = userData.get(userId);
   if (!data) {
-    data = { balance: 0, rep: 0, streak: 0, lastDaily: 0, referrals: [], achievements: [] };
+    data = { 
+      balance: 0, 
+      rep: 0, 
+      streak: 0, 
+      lastDaily: 0, 
+      referrals: [], 
+      achievements: [], 
+      totalTrades: 0 
+    };
     userData.set(userId, data);
   }
   return data;
 }
 
-function saveUser(userId, data) {
+function saveUser(userId: string, data: any): void {
   userData.set(userId, data);
   saveData();
 }
 
-function addPersistentMiddleman(userId) { savedMiddlemen.add(userId); saveData(); }
-function removePersistentMiddleman(userId) { savedMiddlemen.delete(userId); saveData(); }
-function hasPersistentMiddleman(userId) { return savedMiddlemen.has(userId); }
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-client.on('guildMemberAdd', async member => {
-  if (hasPersistentMiddleman(member.id)) {
-    const middlemanRole = member.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
-    if (middlemanRole) {
-      try {
-        await member.roles.add(middlemanRole);
-      } catch (error) {}
+// ========== DM ALERT SYSTEM ==========
+async function sendAlert(title: string, description: string, color: number = 0xff0000): Promise<void> {
+  try {
+    const owner = await client.users.fetch(CONFIG.OWNER_ID);
+    const embed = new EmbedBuilder()
+      .setTitle(`🛡️ ${title}`)
+      .setDescription(description)
+      .setColor(color)
+      .setTimestamp();
+    await owner.send({ embeds: [embed] }).catch(() => console.log('Could not DM owner'));
+    
+    if (CONFIG.ALT_ACCOUNT_ID && CONFIG.ALT_ACCOUNT_ID !== 'YOUR_ALT_ACCOUNT_ID_HERE') {
+      const alt = await client.users.fetch(CONFIG.ALT_ACCOUNT_ID);
+      await alt.send({ embeds: [embed] }).catch(() => console.log('Could not DM alt account'));
+    }
+  } catch (error) {
+    console.error('Failed to send alert:', error);
+  }
+}
+
+// ========== SIMILAR USER CHECK ==========
+function calculateSimilarity(str1: string, str2: string): number {
+  const s1 = str1.toLowerCase();
+  const s2 = str2.toLowerCase();
+  if (s1 === s2) return 100;
+  if (s1.includes(s2) || s2.includes(s1)) return 75;
+  let matches = 0;
+  for (let i = 0; i < Math.min(s1.length, s2.length); i++) {
+    if (s1[i] === s2[i]) matches++;
+  }
+  return (matches / Math.max(s1.length, s2.length)) * 100;
+}
+
+async function findSimilarUsers(guild: any, targetUser: any): Promise<any[]> {
+  const similarUsers: any[] = [];
+  const targetName = targetUser.username;
+  await guild.members.fetch();
+  
+  for (const member of guild.members.cache.values()) {
+    if (member.id === targetUser.id) continue;
+    const similarity = calculateSimilarity(targetName, member.user.username);
+    if (similarity >= 50) {
+      similarUsers.push({
+        id: member.id,
+        username: member.user.username,
+        similarity: Math.round(similarity),
+        joinDate: member.joinedAt || new Date(),
+        mutualGuilds: member.user.client.guilds.cache.size
+      });
+    }
+  }
+  return similarUsers.sort((a, b) => b.similarity - a.similarity).slice(0, 10);
+}
+
+// ========== AUDIT LOG MONITORING ==========
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildWebhooks
+  ]
+});
+
+client.on('roleDelete', async (role) => {
+  try {
+    const auditLog = await role.guild.fetchAuditLogs({ type: AuditLogEvent.RoleDelete, limit: 1 });
+    const executor = auditLog.entries.first()?.executor;
+    if (executor && executor.id !== CONFIG.OWNER_ID) {
+      await sendAlert('⚠️ ROLE DELETED', 
+        `**Role:** ${role.name}\n**Executor:** ${executor.tag} (${executor.id})\n**Server:** ${role.guild.name}`, 0xff0000);
+    }
+  } catch (error) {}
+});
+
+client.on('roleCreate', async (role) => {
+  try {
+    const auditLog = await role.guild.fetchAuditLogs({ type: AuditLogEvent.RoleCreate, limit: 1 });
+    const executor = auditLog.entries.first()?.executor;
+    if (executor && executor.id !== CONFIG.OWNER_ID) {
+      await sendAlert('⚠️ ROLE CREATED', 
+        `**Role:** ${role.name}\n**Executor:** ${executor.tag} (${executor.id})\n**Server:** ${role.guild.name}`, 0xffaa00);
+    }
+  } catch (error) {}
+});
+
+client.on('channelDelete', async (channel) => {
+  try {
+    const auditLog = await channel.guild.fetchAuditLogs({ type: AuditLogEvent.ChannelDelete, limit: 1 });
+    const executor = auditLog.entries.first()?.executor;
+    if (executor && executor.id !== CONFIG.OWNER_ID) {
+      await sendAlert('⚠️ CHANNEL DELETED', 
+        `**Channel:** ${channel.name}\n**Executor:** ${executor.tag} (${executor.id})\n**Server:** ${channel.guild.name}`, 0xff0000);
+    }
+  } catch (error) {}
+});
+
+client.on('guildMemberRemove', async (member) => {
+  try {
+    const auditLog = await member.guild.fetchAuditLogs({ type: AuditLogEvent.MemberKick, limit: 1 });
+    const executor = auditLog.entries.first()?.executor;
+    if (executor && executor.id !== CONFIG.OWNER_ID && member.id !== member.user.id) {
+      await sendAlert('⚠️ MEMBER KICKED', 
+        `**Member:** ${member.user.tag} (${member.id})\n**Executor:** ${executor.tag} (${executor.id})\n**Server:** ${member.guild.name}`, 0xffaa00);
+    }
+  } catch (error) {}
+});
+
+client.on('guildBanAdd', async (ban) => {
+  try {
+    const auditLog = await ban.guild.fetchAuditLogs({ type: AuditLogEvent.MemberBanAdd, limit: 1 });
+    const executor = auditLog.entries.first()?.executor;
+    if (executor && executor.id !== CONFIG.OWNER_ID) {
+      await sendAlert('⚠️ MEMBER BANNED', 
+        `**Member:** ${ban.user.tag} (${ban.user.id})\n**Executor:** ${executor.tag} (${executor.id})\n**Server:** ${ban.guild.name}`, 0xff0000);
+    }
+  } catch (error) {}
+});
+
+client.on('webhookUpdate', async (channel) => {
+  try {
+    const auditLog = await channel.guild.fetchAuditLogs({ type: AuditLogEvent.WebhookCreate, limit: 1 });
+    const executor = auditLog.entries.first()?.executor;
+    if (executor && executor.id !== CONFIG.OWNER_ID) {
+      await sendAlert('⚠️ WEBHOOK CREATED/UPDATED', 
+        `**Channel:** ${channel.name}\n**Executor:** ${executor.tag} (${executor.id})\n**Server:** ${channel.guild.name}`, 0xffaa00);
+    }
+  } catch (error) {}
+});
+
+client.on('messageDeleteBulk', async (messages) => {
+  try {
+    const channel = messages.first()?.channel;
+    if (channel) {
+      await sendAlert('⚠️ MASS MESSAGE DELETE', 
+        `**Channel:** ${channel.name}\n**Messages deleted:** ${messages.size}\n**Server:** ${channel.guild?.name}`, 0xffaa00);
+    }
+  } catch (error) {}
+});
+
+// ========== FETCH RATES ==========
+async function fetchLiveRates(): Promise<void> {
+  try {
+    const response = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=LTCUSDT', { timeout: 5000 });
+    if (response.data && response.data.price) liveRates.ltc = parseFloat(response.data.price);
+    console.log(`📊 Rates updated: LTC = $${liveRates.ltc}`);
+  } catch (error) {
+    console.error('Error fetching rates:', error);
+  }
+}
+setInterval(fetchLiveRates, 2 * 60 * 60 * 1000);
+
+// ========== READY EVENT ==========
+client.once('ready', async () => {
+  console.log(`🛡️ GamerProtect online as ${client.user?.tag}`);
+  console.log(`💰 LTC Escrow Address: ${CONFIG.LTC_WALLET_ADDRESS}`);
+  await fetchLiveRates();
+  loadData();
+  await sendAlert('✅ BOT ONLINE', `GamerProtect is now online monitoring ${client.guilds.cache.size} servers!`, 0x00ff00);
+  
+  // Register slash commands
+  const rest = new REST({ version: '10' }).setToken(client.token!);
+  try {
+    await rest.put(Routes.applicationCommands(client.user!.id), {
+      body: [
+        new SlashCommandBuilder().setName('close').setDescription('Close ticket (Admin)'),
+        new SlashCommandBuilder().setName('say').setDescription('Make bot say something (Owner)')
+          .addStringOption(option => option.setName('message').setDescription('What to say').setRequired(true))
+          .addChannelOption(option => option.setName('channel').setDescription('Channel to send to'))
+      ]
+    });
+    console.log('✅ Slash commands registered');
+  } catch (error) {
+    console.error('Failed to register slash commands:', error);
+  }
+  
+  // Create ticket panel
+  const panelChannel = client.channels.cache.get(CONFIG.TICKET_CHANNEL_ID) as TextChannel;
+  if (panelChannel) {
+    try {
+      const old = await panelChannel.messages.fetch({ limit: 10 });
+      const oldPanel = old.find(m => m.author.id === client.user?.id);
+      if (oldPanel) await oldPanel.delete();
+      
+      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('crypto_select')
+          .setPlaceholder('💰 Select cryptocurrency')
+          .addOptions(
+            { label: '📀 Litecoin (LTC)', value: 'ltc', emoji: '💎', description: 'Fast & low fees' },
+            { label: '💵 Tether USDT (BEP-20)', value: 'usdt', emoji: '💰', description: 'Stablecoin' }
+          )
+      );
+      
+      const embed = new EmbedBuilder()
+        .setTitle('# 🛡️ GamerProtect Escrow Service')
+        .setColor(0x9b59b6)
+        .setDescription('**Welcome to GamerProtect - The #1 Gaming Escrow Service!**\n\nClick below to start a secure trade.')
+        .addFields(
+          { name: '📋 **How it works**', value: '```\n1️⃣ Select your cryptocurrency\n2️⃣ Fill in trade details\n3️⃣ Both parties confirm roles\n4️⃣ Buyer sends crypto to escrow\n5️⃣ Seller sends items/goods\n6️⃣ Funds released to buyer\n```', inline: false },
+          { name: '💰 **Fee Structure**', value: `• Trades **$${FEES.over250Threshold}+**: **$${FEES.over250}**\n• Trades under **$${FEES.over250Threshold}**: **$${FEES.under250}**\n• Trades under **$${FEES.freeThreshold}**: **FREE**`, inline: true },
+          { name: '📊 **Current Rate**', value: `1 LTC = **$${liveRates.ltc.toFixed(2)}** USD`, inline: true },
+          { name: '🔒 **Security Features**', value: '• 24/7 Escrow Protection\n• Dedicated Middlemen\n• Fast & Secure Transactions\n• Staff never DM first\n• Blockchain verification', inline: false }
+        )
+        .setFooter({ text: 'GamerProtect - Secure Gaming Trades' })
+        .setTimestamp();
+      
+      await panelChannel.send({ embeds: [embed], components: [row] });
+      console.log('✅ Ticket panel created');
+    } catch (error) {
+      console.error('Failed to create ticket panel:', error);
+    }
+  }
+  
+  // Create announcement if channel exists
+  const announceChannel = client.channels.cache.get(CONFIG.ANNOUNCEMENTS_CHANNEL_ID) as TextChannel;
+  if (announceChannel) {
+    const announceEmbed = new EmbedBuilder()
+      .setTitle('# 🛡️ GamerProtect is LIVE!')
+      .setColor(0x9b59b6)
+      .setDescription('**The Ultimate Gaming Escrow Service is now available!**')
+      .addFields(
+        { name: '✨ **What is GamerProtect?**', value: 'GamerProtect is a secure escrow service that protects both buyers and sellers in gaming trades. We hold funds until both parties confirm, eliminating scams completely.', inline: false },
+        { name: '📌 **How to Start a Trade**', value: `1. Go to <#${CONFIG.TICKET_CHANNEL_ID}>\n2. Select your cryptocurrency\n3. Fill in the trade details\n4. Complete the secure trade`, inline: false },
+        { name: '🎮 **Supported Games**', value: '• CS:GO / CS2\n• Rust\n• Roblox\n• Fortnite\n• Valorant\n• And any other game!', inline: true },
+        { name: '💰 **Earn GP Coins**', value: 'Complete trades, claim daily bonuses, and earn achievements to unlock exclusive perks! Use `!daily` to start.', inline: true }
+      )
+      .setFooter({ text: 'GamerProtect - The #1 Gaming Escrow Service' });
+    
+    await announceChannel.send({ embeds: [announceEmbed] }).catch(() => {});
+  }
+});
+
+// ========== TICKET CREATION ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isStringSelectMenu()) return;
+  if (interaction.customId !== 'crypto_select') return;
+  
+  const selectInteraction = interaction as StringSelectMenuInteraction;
+  const crypto = selectInteraction.values[0];
+  
+  const modal = new ModalBuilder()
+    .setCustomId(`trade_form_${selectInteraction.user.id}`)
+    .setTitle('🛡️ Create New Trade');
+  
+  modal.addComponents(
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId('buyer')
+        .setLabel("📥 Buyer's Username or ID (Receives Crypto)")
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('@username or Discord ID')
+        .setRequired(true)
+    ),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId('seller_item')
+        .setLabel('🎮 What is the Seller giving? (Items/Account/Goods)')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('Describe what the seller is trading (e.g., "CS2 Knife", "Roblox Account", "Fortnite Skin")')
+        .setRequired(true)
+    ),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId('buyer_item')
+        .setLabel('💰 What is the Buyer giving? (Crypto Amount)')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('e.g., 0.5 LTC, $100 worth of USDT, or 150 LTC')
+        .setRequired(true)
+    )
+  );
+  
+  stepStates.set(`temp_${selectInteraction.user.id}`, { crypto });
+  await selectInteraction.showModal(modal);
+});
+
+// ========== FORM SUBMISSION ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isModalSubmit()) return;
+  if (!interaction.customId.startsWith('trade_form_')) return;
+  
+  const modalInteraction = interaction as ModalSubmitInteraction;
+  await modalInteraction.deferReply({ flags: 64 });
+  
+  const userId = modalInteraction.customId.split('_')[2];
+  const temp = stepStates.get(`temp_${userId}`);
+  if (!temp) return modalInteraction.editReply('❌ Session expired. Please start over.');
+  
+  const buyerInput = modalInteraction.fields.getTextInputValue('buyer');
+  const sellerItem = modalInteraction.fields.getTextInputValue('seller_item');
+  const buyerItem = modalInteraction.fields.getTextInputValue('buyer_item');
+  
+  // Find buyer
+  let buyerId = null;
+  let buyerName = buyerInput;
+  const buyerMatch = buyerInput.match(/\d{17,19}/);
+  if (buyerMatch) {
+    try {
+      const user = await client.users.fetch(buyerMatch[0]);
+      buyerId = user.id;
+      buyerName = user.username;
+    } catch (e) {}
+  } else {
+    const guild = modalInteraction.guild;
+    if (guild) {
+      const members = await guild.members.fetch();
+      const found = members.find(m => m.user.username.toLowerCase() === buyerInput.toLowerCase() || m.displayName.toLowerCase() === buyerInput.toLowerCase());
+      if (found) {
+        buyerId = found.id;
+        buyerName = found.user.username;
+      }
+    }
+  }
+  
+  const ticketNum = Math.floor(Math.random() * 9000) + 1000;
+  const channelName = `trade-${modalInteraction.user.username}-${ticketNum}`;
+  
+  const adminRole = modalInteraction.guild?.roles.cache.find(role => role.permissions.has(PermissionsBitField.Flags.Administrator));
+  
+  const channel = await modalInteraction.guild?.channels.create({
+    name: channelName,
+    type: ChannelType.GuildText,
+    parent: CONFIG.TICKET_CATEGORY_ID,
+    permissionOverwrites: [
+      { id: modalInteraction.guild!.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+      { id: modalInteraction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.AttachFiles] }
+    ]
+  });
+  
+  if (buyerId && channel) {
+    await channel.permissionOverwrites.create(buyerId, {
+      ViewChannel: true, SendMessages: true, ReadMessageHistory: true, AttachFiles: true
+    });
+  }
+  
+  if (adminRole && channel) {
+    await channel.permissionOverwrites.create(adminRole, {
+      ViewChannel: true, SendMessages: true, ReadMessageHistory: true, AttachFiles: true
+    });
+  }
+  
+  const middlemanRole = modalInteraction.guild?.roles.cache.get(CONFIG.MIDDLEMAN_ROLE_ID);
+  if (middlemanRole && channel) {
+    await channel.permissionOverwrites.create(middlemanRole, {
+      ViewChannel: true, SendMessages: true, ReadMessageHistory: true
+    });
+  }
+  
+  trades.set(channel!.id, {
+    crypto: temp.crypto,
+    ticketNumber: ticketNum,
+    sellerId: modalInteraction.user.id,
+    sellerName: modalInteraction.user.username,
+    buyerId: buyerId,
+    buyerName: buyerName,
+    sellerItem: sellerItem,
+    buyerItem: buyerItem,
+    amountUSD: null,
+    amountCrypto: null,
+    feeUSD: 0,
+    feePayer: null,
+    status: 'waiting_roles',
+    channelId: channel!.id,
+    exchangeRateUsed: liveRates[temp.crypto as keyof typeof liveRates],
+    paymentConfirmed: false,
+    createdAt: Date.now()
+  });
+  
+  await modalInteraction.editReply(`✅ **Ticket created successfully!**\n🔗 ${channel}`);
+  
+  const welcomeEmbed = new EmbedBuilder()
+    .setTitle(`# 🛡️ GamerProtect Escrow - Trade #${ticketNum}`)
+    .setColor(0x9b59b6)
+    .setDescription('**Welcome to your secure escrow ticket!** Please select your roles below.')
+    .addFields(
+      { name: '📤 **Seller (Sends Items)**', value: `${modalInteraction.user}\n**Giving:** ${sellerItem}`, inline: true },
+      { name: '📥 **Buyer (Sends Crypto)**', value: buyerId ? `<@${buyerId}>` : buyerName, inline: true },
+      { name: '💎 **Cryptocurrency**', value: temp.crypto.toUpperCase(), inline: true },
+      { name: '📝 **Trade Details**', value: `\`\`\`\nSeller gives: ${sellerItem}\nBuyer gives: ${buyerItem}\nCrypto: ${temp.crypto.toUpperCase()}\nEscrow: GamerProtect Secure\n\`\`\``, inline: false },
+      { name: '🔒 **Security Reminders**', value: '• Staff will **NEVER** DM you first\n• Always verify payments on blockchain\n• Never release items before payment confirmation\n• Save all conversation screenshots', inline: false }
+    )
+    .setFooter({ text: `Trade ID: #${ticketNum} | Created: ${new Date().toLocaleString()}` });
+  
+  const deleteRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`delete_${channel!.id}`).setLabel('❌ Cancel Trade').setStyle(ButtonStyle.Danger)
+  );
+  
+  const roleRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`seller_${channel!.id}`).setLabel('📤 I am the Seller (Sending Items)').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`buyer_${channel!.id}`).setLabel('📥 I am the Buyer (Sending Crypto)').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`reset_${channel!.id}`).setLabel('🔄 Reset Roles').setStyle(ButtonStyle.Secondary)
+  );
+  
+  await channel?.send({ embeds: [welcomeEmbed], components: [deleteRow, roleRow] });
+  stepStates.delete(`temp_${userId}`);
+});
+
+// ========== DELETE TICKET ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isButton()) return;
+  if (!interaction.customId.startsWith('delete_')) return;
+  
+  const buttonInteraction = interaction as ButtonInteraction;
+  const id = buttonInteraction.customId.split('_')[1];
+  await buttonInteraction.reply({ content: '🗑️ Cancelling trade...', flags: 64 });
+  setTimeout(async () => {
+    const ch = await client.channels.fetch(id);
+    if (ch) await ch.delete();
+  }, 3000);
+});
+
+// ========== ROLE SELECTION ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isButton()) return;
+  if (!interaction.customId.startsWith('seller_') && !interaction.customId.startsWith('buyer_') && !interaction.customId.startsWith('reset_')) return;
+  
+  const buttonInteraction = interaction as ButtonInteraction;
+  const id = buttonInteraction.customId.split('_')[1];
+  const trade = trades.get(id);
+  if (!trade) return;
+  
+  if (interaction.customId.startsWith('reset_')) {
+    trade.sellerId = null;
+    trade.buyerId = null;
+    trades.set(id, trade);
+    roleConfirmations.delete(id);
+    await buttonInteraction.reply({ content: '🔄 Roles have been reset', flags: 64 });
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`seller_${id}`).setLabel('📤 Seller (Sends Items)').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`buyer_${id}`).setLabel('📥 Buyer (Sends Crypto)').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`reset_${id}`).setLabel('🔄 Reset').setStyle(ButtonStyle.Secondary)
+    );
+    await buttonInteraction.channel?.send({ content: 'Select your roles:', components: [row] });
+    return;
+  }
+  
+  if (interaction.customId.startsWith('seller_')) {
+    if (trade.sellerId) return buttonInteraction.reply({ content: '❌ Seller role already taken!', flags: 64 });
+    trade.sellerId = buttonInteraction.user.id;
+    await buttonInteraction.reply({ content: '✅ You are the **Seller** (you will send ITEMS to the buyer)', flags: 64 });
+  } else if (interaction.customId.startsWith('buyer_')) {
+    if (trade.buyerId) return buttonInteraction.reply({ content: '❌ Buyer role already taken!', flags: 64 });
+    trade.buyerId = buttonInteraction.user.id;
+    await buttonInteraction.reply({ content: '✅ You are the **Buyer** (you will send CRYPTO to escrow)', flags: 64 });
+  }
+  trades.set(id, trade);
+  
+  if (trade.sellerId && trade.buyerId && !roleConfirmations.has(id)) {
+    roleConfirmations.set(id, []);
+    const confirmEmbed = new EmbedBuilder()
+      .setTitle('✅ Confirm Roles')
+      .setColor(0xff9900)
+      .setDescription(`**Seller (Sends Items):** <@${trade.sellerId}>\n**Buyer (Sends Crypto):** <@${trade.buyerId}>\n\n**Please confirm these roles are correct.**`)
+      .setFooter({ text: 'Both parties must click confirm to continue' });
+    
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`confirm_roles_${id}`).setLabel('✅ Confirm').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`incorrect_roles_${id}`).setLabel('❌ Incorrect').setStyle(ButtonStyle.Danger)
+    );
+    await buttonInteraction.channel?.send({ embeds: [confirmEmbed], components: [row] });
+  }
+});
+
+// ========== ROLE CONFIRMATION ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isButton()) return;
+  if (!interaction.customId.startsWith('confirm_roles_') && !interaction.customId.startsWith('incorrect_roles_')) return;
+  
+  const buttonInteraction = interaction as ButtonInteraction;
+  const id = interaction.customId.split('_')[2];
+  const trade = trades.get(id);
+  if (!trade) return;
+  
+  const confirmed = roleConfirmations.get(id) || [];
+  
+  if (interaction.customId.startsWith('incorrect_roles_')) {
+    trade.sellerId = null;
+    trade.buyerId = null;
+    trades.set(id, trade);
+    roleConfirmations.delete(id);
+    await buttonInteraction.reply({ content: '🔄 Roles have been reset. Please select again.', flags: 64 });
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`seller_${id}`).setLabel('📤 Seller').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`buyer_${id}`).setLabel('📥 Buyer').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`reset_${id}`).setLabel('🔄 Reset').setStyle(ButtonStyle.Secondary)
+    );
+    await buttonInteraction.channel?.send({ content: 'Select your roles:', components: [row] });
+    return;
+  }
+  
+  if (!confirmed.includes(buttonInteraction.user.id)) {
+    confirmed.push(buttonInteraction.user.id);
+    roleConfirmations.set(id, confirmed);
+    await buttonInteraction.reply({ content: `✅ ${buttonInteraction.user.username} confirmed the roles`, flags: 64 });
+  }
+  
+  if (confirmed.length === 2 && confirmed.includes(trade.sellerId) && confirmed.includes(trade.buyerId)) {
+    roleConfirmations.delete(id);
+    
+    const amountEmbed = new EmbedBuilder()
+      .setTitle('💰 Set Trade Amount')
+      .setColor(0x9b59b6)
+      .setDescription(`<@${trade.sellerId}>, please set the USD amount for this trade.`)
+      .addFields(
+        { name: '📝 **Example**', value: '`50`, `250`, `1000`', inline: true },
+        { name: '💰 **Fee Structure**', value: `• $${FEES.over250Threshold}+: **$${FEES.over250}**\n• Under $${FEES.over250Threshold}: **$${FEES.under250}**\n• Under $${FEES.freeThreshold}: **FREE**`, inline: true },
+        { name: '⚠️ **Important**', value: 'The fee is added to the total amount the buyer must send.', inline: false }
+      )
+      .setFooter({ text: 'The seller sets the amount based on the trade value' });
+    
+    const btn = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`set_amount_${id}`).setLabel('💰 Set Amount').setStyle(ButtonStyle.Primary)
+    );
+    await buttonInteraction.channel?.send({ embeds: [amountEmbed], components: [btn] });
+  }
+});
+
+// ========== SET AMOUNT ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isButton()) return;
+  if (!interaction.customId.startsWith('set_amount_')) return;
+  
+  const buttonInteraction = interaction as ButtonInteraction;
+  const id = interaction.customId.split('_')[2];
+  const trade = trades.get(id);
+  if (!trade) return;
+  
+  if (buttonInteraction.user.id !== trade.sellerId) {
+    return buttonInteraction.reply({ content: '❌ Only the seller can set the trade amount', flags: 64 });
+  }
+  
+  const modal = new ModalBuilder()
+    .setCustomId(`amount_modal_${id}`)
+    .setTitle('Set Trade Amount');
+  modal.addComponents(
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId('amount')
+        .setLabel('USD Amount')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Enter amount in USD (e.g., 50, 250, 1000)')
+        .setRequired(true)
+    )
+  );
+  await buttonInteraction.showModal(modal);
+});
+
+// ========== HANDLE AMOUNT ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isModalSubmit()) return;
+  if (!interaction.customId.startsWith('amount_modal_')) return;
+  
+  const modalInteraction = interaction as ModalSubmitInteraction;
+  await modalInteraction.deferReply({ flags: 64 });
+  
+  const id = modalInteraction.customId.split('_')[2];
+  const trade = trades.get(id);
+  if (!trade) return;
+  
+  const amount = parseFloat(modalInteraction.fields.getTextInputValue('amount'));
+  if (isNaN(amount) || amount <= 0) return modalInteraction.editReply('❌ Invalid amount. Please enter a positive number.');
+  
+  trade.amountUSD = amount;
+  const rate = liveRates[trade.crypto as keyof typeof liveRates];
+  trade.exchangeRateUsed = rate;
+  trade.amountCrypto = (amount / rate).toFixed(8);
+  
+  if (amount >= FEES.over250Threshold) trade.feeUSD = FEES.over250;
+  else if (amount >= FEES.freeThreshold) trade.feeUSD = FEES.under250;
+  else trade.feeUSD = 0;
+  
+  trades.set(id, trade);
+  
+  const summaryEmbed = new EmbedBuilder()
+    .setTitle('💰 Trade Summary')
+    .setColor(0x9b59b6)
+    .setDescription(`**Trade #${trade.ticketNumber}**`)
+    .addFields(
+      { name: '💵 **Amount**', value: `$${amount.toFixed(2)} USD`, inline: true },
+      { name: '💎 **Crypto**', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()}`, inline: true },
+      { name: '📊 **Exchange Rate**', value: `1 ${trade.crypto.toUpperCase()} = $${rate.toFixed(2)}`, inline: true },
+      { name: '💸 **Fee**', value: trade.feeUSD > 0 ? `$${trade.feeUSD}` : 'FREE', inline: true },
+      { name: '📤 **Seller**', value: `<@${trade.sellerId}>`, inline: true },
+      { name: '📥 **Buyer**', value: `<@${trade.buyerId}>`, inline: true }
+    )
+    .setFooter({ text: 'Please confirm the amount is correct' });
+  
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`confirm_amount_${id}`).setLabel('✅ Confirm Amount').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`incorrect_amount_${id}`).setLabel('❌ Incorrect').setStyle(ButtonStyle.Danger)
+  );
+  
+  await modalInteraction.editReply('✅ Amount has been set!');
+  await modalInteraction.channel?.send({ embeds: [summaryEmbed], components: [row] });
+  amountConfirmations.set(id, []);
+});
+
+// ========== AMOUNT CONFIRMATION ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isButton()) return;
+  if (!interaction.customId.startsWith('confirm_amount_') && !interaction.customId.startsWith('incorrect_amount_')) return;
+  
+  const buttonInteraction = interaction as ButtonInteraction;
+  const id = interaction.customId.split('_')[2];
+  const trade = trades.get(id);
+  if (!trade) return;
+  
+  const confirmed = amountConfirmations.get(id) || [];
+  
+  if (interaction.customId.startsWith('incorrect_amount_')) {
+    const btn = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`set_amount_${id}`).setLabel('💰 Set Amount').setStyle(ButtonStyle.Primary)
+    );
+    await buttonInteraction.reply({ content: '❌ Please set the correct amount', flags: 64 });
+    await buttonInteraction.channel?.send({ content: `<@${trade.sellerId}>`, components: [btn] });
+    amountConfirmations.delete(id);
+    return;
+  }
+  
+  if (!confirmed.includes(buttonInteraction.user.id)) {
+    confirmed.push(buttonInteraction.user.id);
+    amountConfirmations.set(id, confirmed);
+    await buttonInteraction.reply({ content: `✅ ${buttonInteraction.user.username} confirmed the amount`, flags: 64 });
+  }
+  
+  if (confirmed.length === 2 && confirmed.includes(trade.sellerId) && confirmed.includes(trade.buyerId)) {
+    amountConfirmations.delete(id);
+    
+    if (trade.feeUSD === 0) {
+      await sendPaymentInvoice(buttonInteraction.channel as TextChannel, trade);
+    } else {
+      const feeEmbed = new EmbedBuilder()
+        .setTitle('💸 Who pays the fee?')
+        .setColor(0xff9900)
+        .setDescription(`**Fee Amount:** $${trade.feeUSD}\n**Split option:** $${(trade.feeUSD / 2).toFixed(2)} each\n\nSelect who will pay the fee:`);
+      
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`fee_seller_${id}`).setLabel('📤 Seller Pays').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`fee_buyer_${id}`).setLabel('📥 Buyer Pays').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`fee_split_${id}`).setLabel('⚖️ Split 50/50').setStyle(ButtonStyle.Secondary)
+      );
+      await buttonInteraction.channel?.send({ embeds: [feeEmbed], components: [row] });
+      feeConfirmations.set(id, { users: [], selected: null });
     }
   }
 });
 
-process.on('SIGINT', () => { saveData(); process.exit(); });
-process.on('SIGTERM', () => { saveData(); process.exit(); });
-
-let liveRates = { ltc: 55.83, usdt: 1.00 };
-
-// ========== ACHIEVEMENTS ==========
-const achievements = {
-  firstTrade: { name: '🎯 First Blood', desc: 'Complete your first trade', reward: 50 },
-  trader5: { name: '📈 Rising Star', desc: 'Complete 5 trades', reward: 100 },
-  trader10: { name: '🏆 Veteran Trader', desc: 'Complete 10 trades', reward: 200 },
-  trader25: { name: '👑 Legendary Trader', desc: 'Complete 25 trades', reward: 500 },
-  whale: { name: '🐋 Whale Alert', desc: 'Complete a $1000+ trade', reward: 300 },
-  dailyStreak3: { name: '⚡ On Fire', desc: '3 day daily streak', reward: 75 },
-  dailyStreak7: { name: '🔥 Inferno', desc: '7 day daily streak', reward: 200 },
-  referral: { name: '🤝 Influencer', desc: 'Refer a friend', reward: 100 }
-};
-
-// ========== FETCH LIVE RATES ==========
-async function fetchLiveRates() {
-  try {
-    const response = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=LTCUSDT', { timeout: 5000 });
-    if (response.data && response.data.price) liveRates.ltc = parseFloat(response.data.price);
-  } catch (error) {}
-}
-setInterval(fetchLiveRates, 2 * 60 * 60 * 1000);
-
-function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
-
-// ========== FIND USER ==========
-async function findUser(guild, input) {
-  input = input.trim().replace(/[@]/g, '');
-  if (input.match(/^\d+$/)) {
-    try { const user = await client.users.fetch(input); return { id: user.id, name: user.username, found: true }; } catch(e) {}
-  }
-  try { await guild.members.fetch(); } catch(e) {}
-  let member = guild.members.cache.find(m => m.user.username.toLowerCase() === input.toLowerCase() || m.displayName.toLowerCase() === input.toLowerCase());
-  if (member) return { id: member.id, name: member.user.username, found: true };
-  member = guild.members.cache.find(m => m.user.username.toLowerCase().includes(input.toLowerCase()));
-  if (member) return { id: member.id, name: member.user.username, found: true };
-  return { id: null, name: input, found: false };
-}
-
-// ========== FUN COMMANDS ==========
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
+// ========== FEE SELECTION ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isButton()) return;
+  if (!interaction.customId.startsWith('fee_')) return;
   
-  if (message.content === '!gp') {
-    const user = getUser(message.author.id);
-    const embed = new EmbedBuilder()
-      .setTitle('🛡️ GamerProtect Commands')
+  const buttonInteraction = interaction as ButtonInteraction;
+  const id = interaction.customId.split('_')[2];
+  const trade = trades.get(id);
+  if (!trade) return;
+  if (trade.feePayer) return;
+  
+  const state = feeConfirmations.get(id);
+  if (!state) return;
+  
+  let selected: string | null = null;
+  if (interaction.customId.startsWith('fee_seller')) selected = 'seller';
+  else if (interaction.customId.startsWith('fee_buyer')) selected = 'buyer';
+  else selected = 'split';
+  
+  if (!state.users.includes(buttonInteraction.user.id)) {
+    state.users.push(buttonInteraction.user.id);
+    if (!state.selected) state.selected = selected;
+    feeConfirmations.set(id, state);
+    await buttonInteraction.reply({ content: `✅ You selected: ${selected?.toUpperCase()}`, flags: 64 });
+  } else {
+    return buttonInteraction.reply({ content: '❌ You already selected!', flags: 64 });
+  }
+  
+  if (state.users.length === 2 && state.users.includes(trade.sellerId) && state.users.includes(trade.buyerId)) {
+    if (state.selected === selected) {
+      if (state.selected === 'seller') trade.feePayer = trade.sellerId;
+      else if (state.selected === 'buyer') trade.feePayer = trade.buyerId;
+      else trade.feePayer = 'split';
+      trades.set(id, trade);
+      feeConfirmations.delete(id);
+      await buttonInteraction.channel?.send(`✅ Fee will be paid by: **${state.selected.toUpperCase()}**`);
+      await sendPaymentInvoice(buttonInteraction.channel as TextChannel, trade);
+    } else {
+      await buttonInteraction.channel?.send('❌ **Fee selection mismatch!** The two parties selected different options. Please try again.');
+      feeConfirmations.delete(id);
+      
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`fee_seller_${id}`).setLabel('📤 Seller Pays').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`fee_buyer_${id}`).setLabel('📥 Buyer Pays').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`fee_split_${id}`).setLabel('⚖️ Split 50/50').setStyle(ButtonStyle.Secondary)
+      );
+      const feeEmbed = new EmbedBuilder()
+        .setTitle('💸 Who pays the fee?')
+        .setColor(0xff9900)
+        .setDescription(`**Fee Amount:** $${trade.feeUSD}\n**Split option:** $${(trade.feeUSD / 2).toFixed(2)} each\n\nSelect who will pay the fee:`);
+      await buttonInteraction.channel?.send({ embeds: [feeEmbed], components: [row] });
+      feeConfirmations.set(id, { users: [], selected: null });
+    }
+  }
+});
+
+// ========== SEND PAYMENT INVOICE ==========
+async function sendPaymentInvoice(channel: TextChannel, trade: any): Promise<void> {
+  const rate = trade.exchangeRateUsed || liveRates[trade.crypto as keyof typeof liveRates];
+  let totalUSD = trade.amountUSD;
+  let feeText = '';
+  
+  if (trade.feePayer === trade.sellerId) {
+    totalUSD = trade.amountUSD + trade.feeUSD;
+    feeText = `Seller pays: $${trade.feeUSD}`;
+  } else if (trade.feePayer === trade.buyerId) {
+    totalUSD = trade.amountUSD + trade.feeUSD;
+    feeText = `Buyer pays: $${trade.feeUSD}`;
+  } else if (trade.feePayer === 'split') {
+    totalUSD = trade.amountUSD + (trade.feeUSD / 2);
+    feeText = `Split 50/50: $${(trade.feeUSD / 2).toFixed(2)} each`;
+  } else {
+    feeText = 'FREE';
+  }
+  
+  const totalCrypto = (totalUSD / rate).toFixed(8);
+  
+  const invoiceEmbed = new EmbedBuilder()
+    .setTitle('🛡️ Payment Required - Send Crypto to Escrow')
+    .setColor(0x9b59b6)
+    .setDescription(`**Trade #${trade.ticketNumber}**\n\nPlease send the exact amount to the GamerProtect escrow address below.`)
+    .addFields(
+      { name: '🏦 **Escrow Address**', value: `\`\`\`${CONFIG.LTC_WALLET_ADDRESS}\`\`\``, inline: false },
+      { name: '💰 **Amount to Send**', value: `${totalCrypto} ${trade.crypto.toUpperCase()}`, inline: true },
+      { name: '💵 **USD Value**', value: `$${totalUSD.toFixed(2)}`, inline: true },
+      { name: '💸 **Fee**', value: feeText, inline: true },
+      { name: '⚠️ **Important Instructions**', value: '• Send the **EXACT** amount shown above\n• Double-check the address before sending\n• Funds are held in escrow until both parties confirm\n• Screenshot your transaction for proof', inline: false }
+    )
+    .setFooter({ text: `Trade #${trade.ticketNumber} | Send EXACT amount` });
+  
+  const copyRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`copy_${trade.channelId}`).setLabel('📋 Copy Address').setStyle(ButtonStyle.Secondary)
+  );
+  
+  await channel.send({ embeds: [invoiceEmbed], components: [copyRow] });
+  trade.totalUSD = totalUSD;
+  trades.set(trade.channelId, trade);
+  
+  // Notify middleman role to confirm payment
+  const middlemanRole = channel.guild.roles.cache.get(CONFIG.MIDDLEMAN_ROLE_ID);
+  if (middlemanRole) {
+    const confirmRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`dm_confirm_${trade.channelId}`).setLabel('✅ Confirm Payment').setStyle(ButtonStyle.Success)
+    );
+    
+    const dmEmbed = new EmbedBuilder()
+      .setTitle('🔔 Payment Confirmation Required')
       .setColor(0x9b59b6)
-      .setDescription('**💰 Economy Commands:**')
+      .setDescription(`A trade requires your confirmation as a GamerProtect Middleman.`)
       .addFields(
-        { name: '!gp', value: 'Shows this menu', inline: false },
-        { name: '!balance', value: 'Check your GP coins', inline: true },
-        { name: '!rep', value: 'Check your reputation', inline: true },
-        { name: '!daily', value: 'Claim daily bonus', inline: true },
-        { name: '!gamble [amount]', value: 'Gamble your GP (40% win)', inline: true },
-        { name: '!leaderboard', value: 'Top traders', inline: true },
-        { name: '!tip @user [amount]', value: 'Tip another user', inline: true },
-        { name: '!refer @user', value: 'Refer a friend for bonus', inline: true },
-        { name: '!achievements', value: 'View your achievements', inline: true },
-        { name: '!shop', value: 'Buy items with GP', inline: true },
-        { name: '!streak', value: 'Check your daily streak', inline: true }
+        { name: 'Trade ID', value: `#${trade.ticketNumber}`, inline: true },
+        { name: 'Amount', value: `${totalCrypto} ${trade.crypto.toUpperCase()}`, inline: true },
+        { name: 'Seller', value: `<@${trade.sellerId}>`, inline: true },
+        { name: 'Buyer', value: `<@${trade.buyerId}>`, inline: true }
       )
-      .setFooter({ text: `You have ${user.balance} GP | Rep: ${user.rep}` });
+      .setFooter({ text: 'Only confirm after verifying the payment on the blockchain' });
+    
+    for (const member of middlemanRole.members.values()) {
+      try {
+        await member.send({ embeds: [dmEmbed], components: [confirmRow] });
+      } catch (e) {}
+    }
+  }
+}
+
+// ========== DM CONFIRMATION (MIDDLEMAN) ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isButton()) return;
+  if (!interaction.customId.startsWith('dm_confirm_')) return;
+  
+  const buttonInteraction = interaction as ButtonInteraction;
+  const id = buttonInteraction.customId.split('_')[2];
+  const trade = trades.get(id);
+  if (!trade) return;
+  if (trade.paymentConfirmed) return buttonInteraction.reply({ content: '✅ Payment already confirmed!', flags: 64 });
+  
+  trade.paymentConfirmed = true;
+  trades.set(id, trade);
+  await buttonInteraction.reply({ content: '✅ Payment confirmed! Thank you.', flags: 64 });
+  
+  const ticket = await client.channels.fetch(id) as TextChannel;
+  if (ticket) {
+    const confirmedEmbed = new EmbedBuilder()
+      .setTitle('✅ Payment Confirmed on Blockchain!')
+      .setColor(0x00ff00)
+      .setDescription(`**Trade #${trade.ticketNumber}**\n\nThe crypto payment has been verified on the blockchain!`)
+      .addFields(
+        { name: '💰 **Amount**', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()}`, inline: true },
+        { name: '💵 **USD Value**', value: `$${trade.amountUSD}`, inline: true },
+        { name: '📊 **Exchange Rate**', value: `1 ${trade.crypto.toUpperCase()} = $${trade.exchangeRateUsed?.toFixed(2)}`, inline: true }
+      )
+      .setFooter({ text: 'The seller may now release funds after sending items' });
+    
+    await ticket.send({ embeds: [confirmedEmbed] });
+    await delay(2000);
+    
+    const proceedEmbed = new EmbedBuilder()
+      .setTitle('📦 Proceed with Trade')
+      .setColor(0x00ff00)
+      .setDescription(`**Step-by-Step Instructions:**`)
+      .addFields(
+        { name: '1️⃣ **Seller Sends Items**', value: `<@${trade.sellerId}> - Send the items/goods to <@${trade.buyerId}>`, inline: false },
+        { name: '2️⃣ **Seller Confirms**', value: `Once you have sent the items, click **Release Funds** below`, inline: false },
+        { name: '3️⃣ **Buyer Receives Crypto**', value: `The buyer will enter their wallet address and receive the crypto payment`, inline: false },
+        { name: '⚠️ **Important Warning**', value: '**DO NOT** release funds until you have received ALL items as agreed. This action cannot be undone!', inline: false }
+      )
+      .setFooter({ text: 'Only release funds after receiving items!' });
+    
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`release_${id}`).setLabel('🔓 Release Funds').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`cancel_${id}`).setLabel('❌ Cancel Trade').setStyle(ButtonStyle.Danger)
+    );
+    await ticket.send({ embeds: [proceedEmbed], components: [row] });
+  }
+});
+
+// ========== RELEASE FUNDS ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isButton()) return;
+  
+  const buttonInteraction = interaction as ButtonInteraction;
+  
+  if (buttonInteraction.customId.startsWith('release_')) {
+    const id = buttonInteraction.customId.split('_')[1];
+    const trade = trades.get(id);
+    if (!trade) return;
+    
+    if (buttonInteraction.user.id !== trade.sellerId) {
+      return buttonInteraction.reply({ content: '❌ Only the seller can release funds!', flags: 64 });
+    }
+    
+    if (!trade.paymentConfirmed) {
+      return buttonInteraction.reply({ content: '❌ Payment has not been confirmed yet!', flags: 64 });
+    }
+    
+    const walletEmbed = new EmbedBuilder()
+      .setTitle('📥 Enter Your Wallet Address')
+      .setColor(0x9b59b6)
+      .setDescription(`<@${trade.buyerId}>, the seller has released the funds!\n\nPlease click the button below to enter your ${trade.crypto.toUpperCase()} wallet address to receive payment.`)
+      .addFields(
+        { name: '💰 **Amount to Receive**', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()}`, inline: true },
+        { name: '💵 **USD Value**', value: `$${trade.amountUSD}`, inline: true },
+        { name: '🔒 **Privacy**', value: 'Your wallet address is only visible to staff', inline: true }
+      )
+      .setFooter({ text: 'Enter your wallet address to receive funds' });
+    
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`wallet_request_${id}`)
+        .setLabel('💳 Enter Wallet Address')
+        .setStyle(ButtonStyle.Success)
+    );
+    
+    await buttonInteraction.reply({ content: `✅ Release initiated! Waiting for <@${trade.buyerId}> to provide wallet address...`, flags: 64 });
+    await buttonInteraction.channel?.send({ content: `<@${trade.buyerId}>`, embeds: [walletEmbed], components: [row] });
+  }
+  
+  if (buttonInteraction.customId.startsWith('wallet_request_')) {
+    const id = buttonInteraction.customId.split('_')[2];
+    const trade = trades.get(id);
+    if (!trade) return;
+    
+    if (buttonInteraction.user.id !== trade.buyerId) {
+      return buttonInteraction.reply({ content: '❌ Only the buyer can enter their wallet address!', flags: 64 });
+    }
+    
+    const modal = new ModalBuilder()
+      .setCustomId(`wallet_modal_${id}`)
+      .setTitle(`Enter Your ${trade.crypto.toUpperCase()} Wallet Address`);
+    
+    modal.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId('wallet')
+          .setLabel(`${trade.crypto.toUpperCase()} Wallet Address`)
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder(trade.crypto === 'ltc' ? 'Enter your LTC wallet address' : 'Enter your USDT wallet address (BEP-20)')
+          .setRequired(true)
+      )
+    );
+    
+    await buttonInteraction.showModal(modal);
+  }
+  
+  if (buttonInteraction.customId.startsWith('cancel_')) {
+    const id = buttonInteraction.customId.split('_')[1];
+    await buttonInteraction.reply({ content: '❌ Trade cancelled. Closing ticket...', flags: 64 });
+    setTimeout(async () => {
+      const ch = await client.channels.fetch(id);
+      if (ch) await ch.delete();
+    }, 5000);
+  }
+  
+  if (buttonInteraction.customId.startsWith('copy_')) {
+    const id = buttonInteraction.customId.split('_')[1];
+    const trade = trades.get(id);
+    if (trade) {
+      await buttonInteraction.reply({ 
+        content: `📋 Escrow address copied!\n\`\`\`${CONFIG.LTC_WALLET_ADDRESS}\`\`\`\n**Amount to send:** ${trade.amountCrypto} ${trade.crypto.toUpperCase()}`, 
+        flags: 64 
+      });
+    } else {
+      await buttonInteraction.reply({ 
+        content: `📋 Escrow address copied!\n\`\`\`${CONFIG.LTC_WALLET_ADDRESS}\`\`\``, 
+        flags: 64 
+      });
+    }
+  }
+});
+
+// ========== WALLET SUBMISSION & COMPLETION ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
+  if (!interaction.isModalSubmit()) return;
+  if (!interaction.customId.startsWith('wallet_modal_')) return;
+  
+  const modalInteraction = interaction as ModalSubmitInteraction;
+  await modalInteraction.deferReply({ flags: 64 });
+  
+  const id = modalInteraction.customId.split('_')[2];
+  const trade = trades.get(id);
+  if (!trade) return;
+  
+  if (modalInteraction.user.id !== trade.buyerId) {
+    return modalInteraction.editReply('❌ Only the buyer can submit their wallet address!');
+  }
+  
+  const buyerWallet = modalInteraction.fields.getTextInputValue('wallet');
+  const sent = trade.amountCrypto;
+  const usd = (parseFloat(sent) * (trade.exchangeRateUsed || liveRates[trade.crypto as keyof typeof liveRates])).toFixed(2);
+  
+  // ========== COMPLETION EMBED (This replaces the $mercy command) ==========
+  const completionEmbed = new EmbedBuilder()
+    .setTitle('✅ Trade Completed Successfully!')
+    .setColor(0x00ff00)
+    .setDescription(`**Trade #${trade.ticketNumber}** has been completed!`)
+    .addFields(
+      { name: '💰 **Amount Sent**', value: `${sent} ${trade.crypto.toUpperCase()}`, inline: true },
+      { name: '💵 **USD Value**', value: `$${usd}`, inline: true },
+      { name: '📤 **Seller**', value: `<@${trade.sellerId}>`, inline: true },
+      { name: '📥 **Buyer**', value: `<@${trade.buyerId}>`, inline: true },
+      { name: '🏦 **Buyer Wallet**', value: `\`${buyerWallet}\``, inline: false },
+      { name: '⭐ **Reputation Earned**', value: '+5 rep for both parties', inline: true },
+      { name: '🛡️ **Escrow Service**', value: 'GamerProtect - Secure Gaming Trades', inline: true }
+    )
+    .setFooter({ text: 'Thank you for using GamerProtect!' })
+    .setTimestamp();
+  
+  await modalInteraction.channel?.send({ embeds: [completionEmbed] });
+  await modalInteraction.editReply('✅ Wallet address received! Trade completed successfully.');
+  
+  // Send alert to owner about completed trade
+  await sendAlert('✅ TRADE COMPLETED', 
+    `**Trade #${trade.ticketNumber}**\n**Seller:** <@${trade.sellerId}>\n**Buyer:** <@${trade.buyerId}>\n**Amount:** ${sent} ${trade.crypto.toUpperCase()} ($${usd})`, 0x00ff00);
+  
+  // Update user stats
+  const seller = getUser(trade.sellerId);
+  const buyer = getUser(trade.buyerId);
+  seller.rep = (seller.rep || 0) + 5;
+  buyer.rep = (buyer.rep || 0) + 5;
+  seller.totalTrades = (seller.totalTrades || 0) + 1;
+  buyer.totalTrades = (buyer.totalTrades || 0) + 1;
+  
+  // Add GP rewards (5% of trade amount, min 10, max 500)
+  const gpReward = Math.min(Math.max(Math.floor(trade.amountUSD * 0.05), 10), 500);
+  seller.balance = (seller.balance || 0) + gpReward;
+  buyer.balance = (buyer.balance || 0) + gpReward;
+  
+  saveUser(trade.sellerId, seller);
+  saveUser(trade.buyerId, buyer);
+  
+  // Log to logs channel
+  const logsChannel = client.channels.cache.get(CONFIG.LOGS_CHANNEL_ID) as TextChannel;
+  if (logsChannel) {
+    await logsChannel.send({ embeds: [completionEmbed] });
+  }
+  
+  trade.status = 'completed';
+  trades.set(id, trade);
+  
+  // Auto-close ticket after 10 seconds
+  setTimeout(async () => {
+    try {
+      await modalInteraction.channel?.send('🔒 Ticket will close in 5 seconds...');
+      setTimeout(async () => {
+        if (modalInteraction.channel?.deletable) await modalInteraction.channel?.delete();
+      }, 5000);
+    } catch (e) {}
+  }, 10000);
+});
+
+// ========== OWNER COMMANDS ==========
+client.on('messageCreate', async (message: Message) => {
+  if (message.author.bot) return;
+  if (message.author.id !== CONFIG.OWNER_ID) return;
+  
+  // !check @user - Find similar accounts
+  if (message.content.startsWith('!check')) {
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('❌ Usage: `!check @user`');
+    
+    await message.reply(`🔍 **Checking for accounts similar to ${target.username}...**`);
+    const similar = await findSimilarUsers(message.guild, target);
+    
+    if (similar.length === 0) {
+      return message.reply(`✅ **No similar accounts found for ${target.username}.**`);
+    }
+    
+    const embed = new EmbedBuilder()
+      .setTitle(`🔍 Similar Accounts to ${target.username}`)
+      .setColor(0x9b59b6)
+      .setDescription(`Found **${similar.length}** account(s) with similar usernames (50%+ match)`)
+      .setTimestamp();
+    
+    for (const user of similar) {
+      embed.addFields({ 
+        name: `${user.username} (${user.similarity}% match)`, 
+        value: `ID: \`${user.id}\`\nJoined: ${user.joinDate.toLocaleDateString()}\nMutual Guilds: ${user.mutualGuilds}`,
+        inline: false 
+      });
+    }
     await message.reply({ embeds: [embed] });
   }
+  
+  // !addgp
+  if (message.content.startsWith('!addgp')) {
+    const args = message.content.split(' ');
+    let target = message.author;
+    let amount = parseInt(args[1]);
+    if (message.mentions.users.size > 0) {
+      target = message.mentions.users.first()!;
+      amount = parseInt(args[2]);
+    }
+    if (isNaN(amount) || amount <= 0) return message.reply('❌ Usage: `!addgp 500` or `!addgp @user 500`');
+    const user = getUser(target.id);
+    user.balance += amount;
+    saveUser(target.id, user);
+    await message.reply(`✅ Added **${amount} GP** to ${target.username}! New balance: **${user.balance} GP**`);
+  }
+  
+  // !resetgp
+  if (message.content === '!resetgp') {
+    await message.reply('⚠️ **WARNING:** This will reset EVERYONE\'s GP balance to 0. Type `!confirmreset` within 30 seconds to confirm.');
+    const filter = (m: Message) => m.author.id === CONFIG.OWNER_ID && m.content === '!confirmreset';
+    const collector = message.channel.createMessageCollector({ filter, time: 30000, max: 1 });
+    collector.on('collect', async () => {
+      let count = 0;
+      for (const [userId, user] of userData.entries()) {
+        user.balance = 0;
+        saveUser(userId, user);
+        count++;
+      }
+      await message.reply(`✅ **Reset complete!** ${count} users have had their GP balance set to 0.`);
+    });
+    collector.on('end', collected => {
+      if (collected.size === 0) message.reply('❌ Reset cancelled (timeout).');
+    });
+  }
+  
+  // !allbalances
+  if (message.content === '!allbalances') {
+    const sorted = Array.from(userData.entries()).sort((a, b) => (b[1].balance || 0) - (a[1].balance || 0)).slice(0, 20);
+    let text = '💰 **ALL GP BALANCES (Top 20)** 💰\n\n';
+    for (let i = 0; i < sorted.length; i++) {
+      try {
+        const user = await client.users.fetch(sorted[i][0]);
+        text += `${i + 1}. ${user.username} - ${sorted[i][1].balance || 0} GP (${sorted[i][1].totalTrades || 0} trades, ${sorted[i][1].rep || 0} rep)\n`;
+      } catch (e) {
+        text += `${i + 1}. Unknown User - ${sorted[i][1].balance || 0} GP\n`;
+      }
+    }
+    if (text.length > 2000) {
+      await message.reply({ files: [{ attachment: Buffer.from(text), name: 'balances.txt' }] });
+    } else {
+      await message.reply(text);
+    }
+  }
+  
+  // !say
+  if (message.content.startsWith('!say')) {
+    const text = message.content.slice(4).trim();
+    if (!text) return message.reply('❌ Usage: `!say Hello world!`');
+    const channelMatch = text.match(/^<#(\d+)>\s+(.+)/);
+    let targetChannel = message.channel;
+    let textToSay = text;
+    if (channelMatch) {
+      const channelId = channelMatch[1];
+      textToSay = channelMatch[2];
+      targetChannel = message.guild?.channels.cache.get(channelId) as TextChannel;
+      if (!targetChannel) return message.reply('❌ Channel not found!');
+    }
+    try {
+      await targetChannel.send(textToSay);
+      await message.reply(`✅ Said "${textToSay}" in ${targetChannel}`);
+    } catch (error) {
+      await message.reply(`❌ Failed: ${error}`);
+    }
+  }
+  
+  // !panel
+  if (message.content === '!panel') {
+    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId('crypto_select')
+        .setPlaceholder('💰 Select cryptocurrency')
+        .addOptions(
+          { label: '📀 Litecoin (LTC)', value: 'ltc', emoji: '💎' },
+          { label: '💵 Tether USDT (BEP-20)', value: 'usdt', emoji: '💰' }
+        )
+    );
+    const embed = new EmbedBuilder()
+      .setTitle('# 🛡️ GamerProtect Escrow')
+      .setColor(0x9b59b6)
+      .setDescription('**Secure Escrow for Gaming Trades**')
+      .addFields(
+        { name: '💰 Fees', value: `• $250+: $${FEES.over250}\n• Under $250: $${FEES.under250}\n• Under $50: FREE`, inline: true },
+        { name: '📊 Rate', value: `1 LTC = $${liveRates.ltc.toFixed(2)}`, inline: true }
+      )
+      .setFooter({ text: 'GamerProtect - #1 Gaming Escrow' });
+    await message.channel.send({ embeds: [embed], components: [row] });
+    await message.reply('✅ Panel sent!');
+  }
+  
+  // !givemm
+  if (message.content.startsWith('!givemm')) {
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('❌ Usage: `!givemm @user`');
+    const member = message.guild?.members.cache.get(target.id);
+    const role = message.guild?.roles.cache.get(CONFIG.MIDDLEMAN_ROLE_ID);
+    if (!role) return message.reply('❌ Role not found');
+    await member?.roles.add(role);
+    await message.reply(`✅ ${target.tag} is now a GamerProtect Middleman!`);
+  }
+  
+  // !removemm
+  if (message.content.startsWith('!removemm')) {
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('❌ Usage: `!removemm @user`');
+    const member = message.guild?.members.cache.get(target.id);
+    const role = message.guild?.roles.cache.get(CONFIG.MIDDLEMAN_ROLE_ID);
+    if (member && role) await member.roles.remove(role);
+    await message.reply(`✅ ${target.tag} removed from Middleman`);
+  }
+  
+  // !listmm
+  if (message.content === '!listmm') {
+    const role = message.guild?.roles.cache.get(CONFIG.MIDDLEMAN_ROLE_ID);
+    if (!role) return message.reply('❌ Middleman role not found');
+    const members = role.members.map(m => `• ${m.user.tag} (${m.id})`);
+    if (members.length === 0) return message.reply('📋 No middlemen have the role yet.');
+    await message.reply(`🛡️ **GamerProtect Middlemen:**\n${members.join('\n')}`);
+  }
+});
+
+// ========== ECONOMY COMMANDS FOR EVERYONE ==========
+client.on('messageCreate', async (message: Message) => {
+  if (message.author.bot) return;
   
   if (message.content === '!balance') {
     const user = getUser(message.author.id);
-    const embed = new EmbedBuilder()
-      .setTitle('💰 Your Balance')
-      .setColor(0x9b59b6)
-      .setDescription(`**${message.author.username}** has **${user.balance} GP**`)
-      .addFields(
-        { name: 'Reputation', value: `${user.rep} ⭐`, inline: true },
-        { name: 'Streak', value: `${user.streak} days 🔥`, inline: true },
-        { name: 'Achievements', value: `${user.achievements.length}/${Object.keys(achievements).length}`, inline: true }
-      );
-    await message.reply({ embeds: [embed] });
+    await message.reply(`💰 **${message.author.username}** has **${user.balance} GP**\n⭐ Reputation: ${user.rep}\n📊 Total Trades: ${user.totalTrades || 0}`);
+  }
+  
+  if (message.content === '!rep') {
+    const user = getUser(message.author.id);
+    await message.reply(`⭐ **${message.author.username}** has **${user.rep}** reputation points!`);
   }
   
   if (message.content === '!daily') {
     const user = getUser(message.author.id);
     const now = Date.now();
-    const lastDaily = user.lastDaily || 0;
-    const hoursSince = (now - lastDaily) / (1000 * 60 * 60);
-    
-    if (hoursSince < 24) {
-      const hoursLeft = Math.ceil(24 - hoursSince);
-      return message.reply(`⏰ Come back in ${hoursLeft} hours!`);
+    if (now - (user.lastDaily || 0) < 86400000) {
+      const hoursLeft = Math.ceil(24 - (now - (user.lastDaily || 0)) / 3600000);
+      return message.reply(`⏰ **Come back in ${hoursLeft} hours!**`);
     }
-    
-    let streak = user.streak || 0;
-    const daysSince = Math.floor(hoursSince / 24);
-    if (daysSince === 1) streak++;
-    else streak = 1;
-    
-    const reward = 25 + Math.floor(Math.random() * 50) + Math.floor(streak / 3) * 15;
+    const reward = 25 + Math.floor(Math.random() * 50) + Math.floor((user.streak || 0) / 3) * 15;
     user.balance += reward;
-    user.streak = streak;
     user.lastDaily = now;
+    user.streak = (user.streak || 0) + 1;
     saveUser(message.author.id, user);
-    
-    await message.reply(`🎁 **Daily Claimed!** +${reward} GP\n🔥 Streak: ${streak} days\n💰 Balance: ${user.balance} GP`);
+    await message.reply(`🎁 **Daily Claimed!** +${reward} GP\n🔥 Streak: ${user.streak} days\n💰 Balance: ${user.balance} GP`);
   }
   
   if (message.content === '!streak') {
@@ -289,7 +1312,6 @@ client.on('messageCreate', async message => {
     const user = getUser(message.author.id);
     if (isNaN(amount) || amount <= 0) return message.reply('❌ Usage: `!gamble 50`');
     if (user.balance < amount) return message.reply(`❌ You only have ${user.balance} GP!`);
-    
     const win = Math.random() < 0.4;
     if (win) {
       user.balance += amount;
@@ -304,12 +1326,12 @@ client.on('messageCreate', async message => {
   
   if (message.content === '!leaderboard') {
     const sorted = Array.from(userData.entries()).sort((a, b) => (b[1].balance || 0) - (a[1].balance || 0)).slice(0, 10);
-    let text = '🏆 **Top Traders** 🏆\n\n';
+    let text = '🏆 **Top Traders Leaderboard** 🏆\n\n';
     for (let i = 0; i < sorted.length; i++) {
       try {
         const user = await client.users.fetch(sorted[i][0]);
-        text += `${i + 1}. ${user.username} - ${sorted[i][1].balance || 0} GP\n`;
-      } catch(e) {}
+        text += `${i + 1}. ${user.username} - ${sorted[i][1].balance || 0} GP (${sorted[i][1].totalTrades || 0} trades)\n`;
+      } catch (e) {}
     }
     await message.reply(text);
   }
@@ -321,1280 +1343,49 @@ client.on('messageCreate', async message => {
     if (!target) return message.reply('❌ Usage: `!tip @user 50`');
     if (target.id === message.author.id) return message.reply('❌ Cannot tip yourself');
     if (isNaN(amount) || amount <= 0) return message.reply('❌ Enter valid amount');
-    
     const sender = getUser(message.author.id);
     if (sender.balance < amount) return message.reply(`❌ You only have ${sender.balance} GP!`);
-    
     const receiver = getUser(target.id);
     sender.balance -= amount;
     receiver.balance += amount;
     saveUser(message.author.id, sender);
     saveUser(target.id, receiver);
-    await message.reply(`💝 Tipped **${amount} GP** to ${target.username}!`);
-  }
-  
-  if (message.content.startsWith('!refer')) {
-    const target = message.mentions.users.first();
-    if (!target) return message.reply('❌ Usage: `!refer @user`');
-    if (target.id === message.author.id) return message.reply('❌ Cannot refer yourself');
-    
-    const user = getUser(message.author.id);
-    if (user.referrals.includes(target.id)) return message.reply('❌ Already referred this user!');
-    
-    user.referrals.push(target.id);
-    user.balance += 100;
-    saveUser(message.author.id, user);
-    await message.reply(`🎉 Referred ${target.username}! +100 GP!`);
-  }
-  
-  if (message.content === '!achievements') {
-    const user = getUser(message.author.id);
-    let achieved = '', locked = '';
-    for (const [key, ach] of Object.entries(achievements)) {
-      if (user.achievements.includes(key)) {
-        achieved += `✅ ${ach.name} - ${ach.desc}\n`;
-      } else {
-        locked += `🔒 ${ach.name} - ${ach.desc}\n`;
-      }
-    }
-    const embed = new EmbedBuilder()
-      .setTitle('🏆 Achievements')
-      .setColor(0x9b59b6)
-      .setDescription(`${user.achievements.length}/${Object.keys(achievements).length} unlocked`)
-      .addFields(
-        { name: '✅ Unlocked', value: achieved || 'None', inline: false },
-        { name: '🔒 Locked', value: locked || 'All unlocked!', inline: false }
-      );
-    await message.reply({ embeds: [embed] });
-  }
-  
-  if (message.content === '!shop') {
-    const embed = new EmbedBuilder()
-      .setTitle('🛒 GamerProtect Shop')
-      .setColor(0x9b59b6)
-      .addFields(
-        { name: '🎨 Custom Role Color', value: '500 GP', inline: true },
-        { name: '📢 Shoutout', value: '300 GP', inline: true },
-        { name: '🎁 Mystery Box', value: '200 GP', inline: true },
-        { name: '⭐ Boost Rep', value: '150 GP', inline: true },
-        { name: '💎 Premium Badge', value: '1000 GP', inline: true }
-      )
-      .setFooter({ text: 'Use !buy "item name"' });
-    await message.reply({ embeds: [embed] });
-  }
-  
-  if (message.content.startsWith('!buy')) {
-    const args = message.content.slice(5).toLowerCase();
-    const user = getUser(message.author.id);
-    
-    if (args.includes('mystery')) {
-      if (user.balance < 200) return message.reply(`❌ Need 200 GP! You have ${user.balance}`);
-      user.balance -= 200;
-      const reward = Math.floor(Math.random() * 450) + 50;
-      user.balance += reward;
-      saveUser(message.author.id, user);
-      await message.reply(`🎁 Mystery Box: +${reward} GP! New balance: ${user.balance} GP`);
-    } else if (args.includes('boost')) {
-      if (user.balance < 150) return message.reply(`❌ Need 150 GP!`);
-      user.balance -= 150;
-      user.rep += 10;
-      saveUser(message.author.id, user);
-      await message.reply(`⭐ Reputation boosted! +10 rep. New balance: ${user.balance} GP`);
-    } else {
-      await message.reply('❌ Unknown item. Use `!shop` to see items.');
-    }
+    await message.reply(`💝 **${message.author.username}** tipped **${amount} GP** to ${target.username}!`);
   }
 });
 
-// ========== $MERCY COMMAND WITH ACCEPT/DECLINE ==========
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-  if (!message.content.startsWith('$mercy')) return;
-  
-  const args = message.content.split(' ');
-  const target = message.mentions.users.first();
-  
-  if (!target) {
-    return message.reply('❌ Usage: `$mercy @user`');
-  }
-  
-  const mercyEmbed = new EmbedBuilder()
-    .setTitle('⚠️ Hitting Application')
-    .setColor(0xff6600)
-    .setDescription('We regret to inform you that you have been scammed, and we sincerely apologize for this unfortunate situation.\n\nHowever, there is a way for you to recover your losses and potentially earn 2x or even 100x if you\'re active.\n\n**What is Hitting?**\nHitting is where you scam other people, often using fake middlemans. You can use our fake services that we provide to scam others and get tons of items.\n\nChoose if you want to start hitting with us now.\n\nPlease click accept or decline to indicate your decision.\n\n**You have one minute to respond.**\nThe decision is yours. Make it count.')
-    .setFooter({ text: 'GamerProtect - Hitting System' })
-    .setTimestamp();
-  
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`mercy_accept_${target.id}`)
-      .setLabel('✅ Accept')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(`mercy_decline_${target.id}`)
-      .setLabel('❌ Decline')
-      .setStyle(ButtonStyle.Danger)
-  );
-  
-  await message.channel.send({ content: `<@${target.id}>`, embeds: [mercyEmbed], components: [row] });
-});
-
-// ========== MERCY BUTTON HANDLER ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-  if (!interaction.customId.startsWith('mercy_accept_') && !interaction.customId.startsWith('mercy_decline_')) return;
-  
-  const targetId = interaction.customId.split('_')[2];
-  const target = await interaction.guild.members.fetch(targetId);
-  
-  // Only the mentioned user can click
-  if (interaction.user.id !== targetId) {
-    return interaction.reply({ content: '❌ This button is not for you!', flags: 64 });
-  }
-  
-  if (interaction.customId.startsWith('mercy_accept_')) {
-    // Give Middleman role
-    const middlemanRole = interaction.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
-    if (middlemanRole) {
-      await target.roles.add(middlemanRole);
-      addPersistentMiddleman(targetId);
-      await interaction.reply({ content: `✅ You have accepted! You now have the <@&${MIDDLEMAN_ROLE_ID}> role.`, flags: 64 });
-    } else {
-      await interaction.reply({ content: '❌ Middleman role not found!', flags: 64 });
-    }
-  }
-  
-  if (interaction.customId.startsWith('mercy_decline_')) {
-    // Ask for confirmation
-    const confirmEmbed = new EmbedBuilder()
-      .setTitle('⚠️ Are you sure?')
-      .setColor(0xff0000)
-      .setDescription('If you decline, you will be **BANNED** from this server. This action cannot be undone.\n\nDo you really want to decline?');
-    
-    const confirmRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`mercy_confirm_ban_${targetId}`)
-        .setLabel('⚠️ Yes, Decline and Ban Me')
-        .setStyle(ButtonStyle.Danger),
-      new ButtonBuilder()
-        .setCustomId(`mercy_cancel_${targetId}`)
-        .setLabel('🔙 No, Go Back')
-        .setStyle(ButtonStyle.Secondary)
-    );
-    
-    await interaction.reply({ embeds: [confirmEmbed], components: [confirmRow], flags: 64 });
-  }
-  
-  if (interaction.customId.startsWith('mercy_confirm_ban_')) {
-    const targetId = interaction.customId.split('_')[3];
-    const target = await interaction.guild.members.fetch(targetId);
-    
-    // Ban the user
-    await target.ban({ reason: 'Declined mercy application' });
-    await interaction.reply({ content: `✅ ${target.user.tag} has been banned.`, flags: 64 });
-  }
-  
-  if (interaction.customId.startsWith('mercy_cancel_')) {
-    await interaction.reply({ content: '🔙 You have cancelled. You have 30 seconds to make a decision.', flags: 64 });
-    
-    // Resend the original embed
-    const mercyEmbed = new EmbedBuilder()
-      .setTitle('⚠️ Hitting Application')
-      .setColor(0xff6600)
-      .setDescription('We regret to inform you that you have been scammed, and we sincerely apologize for this unfortunate situation.\n\nHowever, there is a way for you to recover your losses and potentially earn 2x or even 100x if you\'re active.\n\n**What is Hitting?**\nHitting is where you scam other people, often using fake middlemans. You can use our fake services that we provide to scam others and get tons of items.\n\nChoose if you want to start hitting with us now.\n\nPlease click accept or decline to indicate your decision.\n\n**You have one minute to respond.**\nThe decision is yours. Make it count.')
-      .setFooter({ text: 'GamerProtect - Hitting System' })
-      .setTimestamp();
-    
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`mercy_accept_${targetId}`)
-        .setLabel('✅ Accept')
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(`mercy_decline_${targetId}`)
-        .setLabel('❌ Decline')
-        .setStyle(ButtonStyle.Danger)
-    );
-    
-    await interaction.channel.send({ content: `<@${targetId}>`, embeds: [mercyEmbed], components: [row] });
-  }
-});
-
-// ========== OWNER ONLY: ADD GP COMMAND ==========
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-  if (!message.content.startsWith('!addgp')) return;
-  
-  if (message.author.id !== OWNER_ID) {
-    return message.reply('❌ Only the bot owner can use this command!');
-  }
-  
-  const args = message.content.split(' ');
-  let target = message.author;
-  let amount = parseInt(args[1]);
-  
-  if (message.mentions.users.size > 0) {
-    target = message.mentions.users.first();
-    amount = parseInt(args[2]);
-  }
-  
-  if (isNaN(amount) || amount <= 0) {
-    return message.reply('❌ Usage: `!addgp 500` or `!addgp @user 500`');
-  }
-  
-  const user = getUser(target.id);
-  user.balance += amount;
-  saveUser(target.id, user);
-  
-  await message.reply(`✅ Added **${amount} GP** to ${target.username}! New balance: **${user.balance} GP**`);
-});
-
-// ========== OWNER ONLY: RESET ALL GP TO ZERO ==========
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-  if (!message.content.startsWith('!resetgp')) return;
-  
-  if (message.author.id !== OWNER_ID) {
-    return message.reply('❌ Only the bot owner can reset everyone\'s GP!');
-  }
-  
-  await message.reply('⚠️ **WARNING:** This will reset EVERYONE\'s GP balance to 0. Type `!confirmreset` within 30 seconds to confirm.');
-  
-  const filter = m => m.author.id === OWNER_ID && m.content === '!confirmreset';
-  const collector = message.channel.createMessageCollector({ filter, time: 30000, max: 1 });
-  
-  collector.on('collect', async () => {
-    let count = 0;
-    for (const [userId, user] of userData.entries()) {
-      user.balance = 0;
-      saveUser(userId, user);
-      count++;
-    }
-    
-    await message.reply(`✅ **Reset complete!** ${count} users have had their GP balance set to 0.`);
-    console.log(`🔄 GP Reset: ${count} users reset to 0 by ${message.author.tag}`);
-  });
-  
-  collector.on('end', collected => {
-    if (collected.size === 0) {
-      message.reply('❌ Reset cancelled (timeout).');
-    }
-  });
-});
-
-// ========== OWNER ONLY: VIEW ALL BALANCES ==========
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-  if (!message.content.startsWith('!allbalances')) return;
-  
-  if (message.author.id !== OWNER_ID) {
-    return message.reply('❌ Only the bot owner can view all balances!');
-  }
-  
-  const sorted = Array.from(userData.entries()).sort((a, b) => (b[1].balance || 0) - (a[1].balance || 0)).slice(0, 20);
-  let text = '💰 **ALL GP BALANCES (Top 20)** 💰\n\n';
-  
-  for (let i = 0; i < sorted.length; i++) {
-    try {
-      const user = await client.users.fetch(sorted[i][0]);
-      text += `${i + 1}. ${user.username} - ${sorted[i][1].balance || 0} GP\n`;
-    } catch(e) {
-      text += `${i + 1}. Unknown User - ${sorted[i][1].balance || 0} GP\n`;
-    }
-  }
-  
-  if (text.length > 2000) {
-    await message.reply({ files: [{ attachment: Buffer.from(text), name: 'balances.txt' }] });
-  } else {
-    await message.reply(text);
-  }
-});
-
-// ========== OWNER ONLY SAY COMMAND (!say) ==========
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-  if (!message.content.startsWith('!say')) return;
-  
-  if (message.author.id !== OWNER_ID) {
-    return message.reply('❌ Only the bot owner can use this command!');
-  }
-  
-  const args = message.content.slice(4).trim();
-  if (!args) return message.reply('❌ Usage: `!say Hello world!`');
-  
-  const channelMatch = args.match(/^<#(\d+)>\s+(.+)/);
-  let targetChannel = message.channel;
-  let textToSay = args;
-  
-  if (channelMatch) {
-    const channelId = channelMatch[1];
-    textToSay = channelMatch[2];
-    targetChannel = message.guild.channels.cache.get(channelId);
-    if (!targetChannel) return message.reply('❌ Channel not found!');
-  }
-  
-  try {
-    await targetChannel.send(textToSay);
-    await message.reply(`✅ Said "${textToSay}" in ${targetChannel}`);
-  } catch (error) {
-    await message.reply(`❌ Failed: ${error.message}`);
-  }
-});
-
-// ========== RANDOM PROOF GENERATOR ==========
-function generateRandomProof() {
-  const minAmount = 2;
-  const maxAmount = 1500;
-  const usdAmount = (Math.random() * (maxAmount - minAmount) + minAmount).toFixed(2);
-  const parsedAmount = parseFloat(usdAmount);
-  const ltcAmount = (parsedAmount / liveRates.ltc).toFixed(8);
-  const tx = getTransactionByAmount(parsedAmount);
-  const shortHash = tx.shortHash;
-  const link = tx.link;
-  
-  const isSenderAnonymous = Math.random() < 0.7;
-  const isReceiverAnonymous = Math.random() < 0.7;
-  
-  let sender = 'Anonymous';
-  let receiver = 'Anonymous';
-  
-  if (!isSenderAnonymous) {
-    const randomUserId = realUserIds[Math.floor(Math.random() * realUserIds.length)];
-    sender = `<@${randomUserId}>`;
-  }
-  
-  if (!isReceiverAnonymous) {
-    const randomUserId = realUserIds[Math.floor(Math.random() * realUserIds.length)];
-    receiver = `<@${randomUserId}>`;
-  }
-  
-  const tradeMessages = [
-    `**${ltcAmount} LTC** ($${usdAmount} USD)`,
-    `💰 **${ltcAmount} LTC** | $${usdAmount} USD`,
-    `✅ Trade completed: ${ltcAmount} LTC ($${usdAmount})`,
-    `🔄 ${ltcAmount} LTC → $${usdAmount}`,
-    `📦 ${ltcAmount} LTC · $${usdAmount} USD`,
-    `💎 ${ltcAmount} LTC ($${usdAmount}) - Escrow complete`,
-    `🎮 Game trade: ${ltcAmount} LTC for $${usdAmount}`,
-    `🛡️ GamerProtect: ${ltcAmount} LTC ($${usdAmount})`
-  ];
-  
-  return new EmbedBuilder()
-    .setTitle('✅ Trade Completed')
-    .setColor(0x9b59b6)
-    .setDescription(tradeMessages[Math.floor(Math.random() * tradeMessages.length)])
-    .addFields(
-      { name: 'Sender', value: sender, inline: true },
-      { name: 'Receiver', value: receiver, inline: true },
-      { name: 'Transaction', value: `[${shortHash}](${link})`, inline: true },
-      { name: 'Escrow', value: 'GamerProtect Secure', inline: true }
-    )
-    .setTimestamp();
-}
-
-async function startRandomProofGenerator() {
-  const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
-  if (!logsChannel) {
-    console.log(`❌ Logs channel not found! ID: ${LOGS_CHANNEL_ID}`);
-    return;
-  }
-  
-  console.log(`✅ Random proof generator started in ${logsChannel.name}`);
-  
-  const scheduleNext = () => {
-    const minDelay = 60 * 1000;
-    const maxDelay = 15 * 60 * 1000;
-    const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1) + minDelay);
-    
-    setTimeout(async () => {
-      try {
-        const proof = generateRandomProof();
-        await logsChannel.send({ embeds: [proof] });
-        console.log(`📊 Random proof posted at ${new Date().toLocaleTimeString()}`);
-      } catch (error) {
-        console.log(`❌ Error sending random proof: ${error.message}`);
-      }
-      scheduleNext();
-    }, randomDelay);
-  };
-  
-  scheduleNext();
-}
-
-// ========== SEND PAYMENT INVOICE ==========
-async function sendPaymentInvoice(channel, trade) {
-  const rate = trade.exchangeRateUsed || liveRates[trade.crypto];
-  let totalUSD = trade.amountUSD;
-  let feeText = '';
-  if (trade.feePayer === trade.senderId) {
-    totalUSD = trade.amountUSD + trade.feeUSD;
-    feeText = `Sender pays: $${trade.feeUSD}`;
-  } else if (trade.feePayer === trade.receiverId) {
-    totalUSD = trade.amountUSD + trade.feeUSD;
-    feeText = `Receiver pays: $${trade.feeUSD}`;
-  } else if (trade.feePayer === 'split') {
-    totalUSD = trade.amountUSD + (trade.feeUSD / 2);
-    feeText = `Split 50/50: $${(trade.feeUSD / 2).toFixed(2)} each`;
-  } else {
-    feeText = 'FREE';
-  }
-  
-  const totalCrypto = (totalUSD / rate).toFixed(8);
-  const embed = new EmbedBuilder()
-    .setTitle('🛡️ Payment Required')
-    .setColor(0x9b59b6)
-    .setDescription(`**Send ${totalCrypto} ${trade.crypto.toUpperCase()} to the GamerProtect Escrow address:**`)
-    .addFields(
-      { name: '🏦 Escrow Address', value: `\`\`\`${LTC_WALLET_ADDRESS}\`\`\``, inline: false },
-      { name: '💰 Amount to Send', value: `${totalCrypto} ${trade.crypto.toUpperCase()} ($${totalUSD.toFixed(2)})`, inline: true },
-      { name: '💸 Fee', value: feeText, inline: true }
-    )
-    .setFooter({ text: `Trade #${trade.ticketNumber} | Send EXACT amount` });
-  
-  const copy = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`copy_${trade.channelId}`).setLabel('📋 Copy Address').setStyle(ButtonStyle.Secondary));
-  await channel.send({ embeds: [embed], components: [copy] });
-  
-  trade.totalUSD = totalUSD;
-  trades.set(trade.channelId, trade);
-  
-  const sender = channel.guild.members.cache.get(trade.senderId);
-  const middlemanRole = channel.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
-  
-  if (sender && middlemanRole && sender.roles.cache.has(MIDDLEMAN_ROLE_ID)) {
-    const confirmRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`dm_confirm_${trade.channelId}`)
-        .setLabel('✅ Confirm Payment')
-        .setStyle(ButtonStyle.Success)
-    );
-    
-    const dmEmbed = new EmbedBuilder()
-      .setTitle('🔔 GamerProtect Payment Confirmation')
-      .setColor(0x9b59b6)
-      .setDescription('A trade requires your confirmation as a GamerProtect Middleman.')
-      .addFields(
-        { name: '📤 Sender (Sends Crypto)', value: `<@${trade.senderId}>`, inline: true },
-        { name: '📥 Receiver (Sends Items)', value: `<@${trade.receiverId}>`, inline: true },
-        { name: '💰 Amount', value: `${totalCrypto} ${trade.crypto.toUpperCase()} ($${totalUSD.toFixed(2)})`, inline: true },
-        { name: '💸 Fee', value: trade.feeUSD > 0 ? `$${trade.feeUSD}` : 'FREE', inline: true }
-      )
-      .setFooter({ text: 'Only click Confirm after verifying the payment on the blockchain' });
-    
-    try {
-      await sender.send({ embeds: [dmEmbed], components: [confirmRow] });
-      console.log(`📨 DM sent to sender (has MM role): ${sender.user.tag}`);
-    } catch(e) {
-      console.log(`❌ Could not DM sender: ${e.message}`);
-    }
-  } else {
-    console.log(`⚠️ Sender ${trade.senderId} does not have middleman role. No DM sent.`);
-  }
-}
-
-// ========== CLIENT READY ==========
-client.once('ready', async () => {
-  console.log(`🛡️ GamerProtect online as ${client.user.tag}`);
-  console.log(`💰 LTC Escrow Address: ${LTC_WALLET_ADDRESS}`);
-  await client.user.setUsername('GamerProtect').catch(()=>{});
-  client.user.setPresence({ activities: [{ name: 'GamerProtect Escrow', type: 3 }], status: 'online' });
-  
-  loadData();
-  await fetchLiveRates();
-  
-  const rest = new REST({ version: '10' }).setToken(client.token);
-  await rest.put(Routes.applicationCommands(client.user.id), { body: [
-    new SlashCommandBuilder().setName('close').setDescription('Close ticket (Admin)'),
-    new SlashCommandBuilder().setName('exportusers').setDescription('Export user IDs (Owner)'),
-    new SlashCommandBuilder()
-      .setName('say')
-      .setDescription('Make the bot say something (Owner only)')
-      .addStringOption(option =>
-        option.setName('message')
-          .setDescription('What you want the bot to say')
-          .setRequired(true))
-      .addChannelOption(option =>
-        option.setName('channel')
-          .setDescription('Channel to send to (optional, defaults to current channel)')
-          .setRequired(false))
-  ] });
-  
-  const announce = client.channels.cache.get(ANNOUNCEMENTS_CHANNEL_ID);
-  if (announce) {
-    const introEmbed = new EmbedBuilder()
-      .setTitle('# 🛡️ Introducing GamerProtect')
-      .setColor(0x9b59b6)
-      .setDescription('**The Ultimate Gaming Escrow Service is HERE!**')
-      .addFields(
-        { name: '✨ What is GamerProtect?', value: 'GamerProtect is a secure escrow service that protects both buyers and sellers in gaming trades. We hold funds until both parties confirm the trade, eliminating scams completely.', inline: false },
-        { name: '💰 Fee Structure', value: `• Deals $250+: **$${FEES.over250}**\n• Deals under $250: **$${FEES.under250}**\n• Deals under $50: **FREE**`, inline: true },
-        { name: '🎮 Supported Cryptocurrencies', value: '• Litecoin (LTC) - Fast & low fees\n• Tether USDT (BEP-20) - Stablecoin', inline: true },
-        { name: '🏆 Earn GP Coins!', value: 'Complete trades, claim daily bonuses, refer friends, and earn achievements to unlock exclusive perks!', inline: false },
-        { name: '📌 How to Start', value: `1. Go to <#${TICKET_CHANNEL_ID}>\n2. Select your cryptocurrency\n3. Fill in trade details\n4. Complete the secure trade`, inline: false },
-        { name: '🛡️ GamerProtect Features', value: '• 24/7 Escrow Protection\n• Dedicated Middlemen\n• Fast & Secure Transactions\n• Reputation System\n• GP Coin Rewards\n• Achievement System\n• Daily Streaks\n• Referral Bonuses', inline: true },
-        { name: '🔗 Useful Commands', value: '`!gp` - View all commands\n`!daily` - Claim daily bonus\n`!balance` - Check your GP\n`!shop` - Buy exclusive perks\n`!say` - Make bot say something (Owner)', inline: true }
-      )
-      .setFooter({ text: 'GamerProtect - The #1 Gaming Escrow Service' })
-      .setTimestamp();
-    
-    await announce.send({ embeds: [introEmbed] });
-    console.log('📢 Full announcement sent!');
-  }
-  
-  const panelChannel = client.channels.cache.get(TICKET_CHANNEL_ID);
-  if (panelChannel) {
-    const old = await panelChannel.messages.fetch({ limit: 10 });
-    const oldPanel = old.find(m => m.author.id === client.user.id);
-    if (oldPanel) await oldPanel.delete();
-    
-    const row = new ActionRowBuilder().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId('crypto_select')
-        .setPlaceholder('💰 Select cryptocurrency')
-        .addOptions(
-          { label: '📀 Litecoin (LTC)', value: 'ltc', emoji: '💎' },
-          { label: '💵 Tether USDT (BEP-20)', value: 'usdt', emoji: '💰' }
-        )
-    );
-    
-    const panelEmbed = new EmbedBuilder()
-      .setTitle('# 🛡️ GamerProtect')
-      .setColor(0x9b59b6)
-      .setDescription('**Secure Escrow for Gaming Trades**')
-      .addFields(
-        { name: '💰 Fees', value: `• $250+: $${FEES.over250}\n• Under $250: $${FEES.under250}\n• Under $50: FREE`, inline: true },
-        { name: '📊 Rate', value: `1 LTC = $${liveRates.ltc.toFixed(2)}`, inline: true },
-        { name: '📜 Policy', value: 'Funds held in escrow until both parties confirm. Staff never DM first.', inline: false }
-      )
-      .setFooter({ text: 'GamerProtect - #1 Gaming Escrow' });
-    
-    await panelChannel.send({ embeds: [panelEmbed], components: [row] });
-  }
-  
-  startRandomProofGenerator();
-});
-
-// ========== SLASH COMMAND HANDLER (/say and /close) ==========
-client.on('interactionCreate', async interaction => {
+// ========== SLASH COMMANDS ==========
+client.on('interactionCreate', async (interaction: Interaction) => {
   if (!interaction.isCommand()) return;
+  const cmd = interaction as CommandInteraction;
   
-  if (interaction.commandName === 'close') {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) return interaction.reply({ content: '❌ Admin only', flags: 64 });
-    if (!interaction.channel.name?.startsWith('gp-')) return interaction.reply({ content: '❌ Use in ticket', flags: 64 });
-    await interaction.reply({ content: '🔒 Closing in 5s...', flags: 64 });
-    setTimeout(async () => { await interaction.channel.delete(); }, 5000);
-  }
-  
-  if (interaction.commandName === 'say') {
-    if (interaction.user.id !== OWNER_ID) {
-      return interaction.reply({ content: '❌ Only the bot owner can use this command!', flags: 64 });
+  if (cmd.commandName === 'close') {
+    if (!cmd.memberPermissions?.has(PermissionsBitField.Flags.Administrator)) {
+      return cmd.reply({ content: '❌ Admin only', flags: 64 });
     }
-    
-    const message = interaction.options.getString('message');
-    const channel = interaction.options.getChannel('channel') || interaction.channel;
-    
-    await interaction.deferReply({ flags: 64 });
-    
-    try {
-      await channel.send(message);
-      await interaction.editReply(`✅ Said "${message}" in ${channel}`);
-    } catch (error) {
-      await interaction.editReply(`❌ Failed to send message: ${error.message}`);
+    if (!cmd.channel?.name?.startsWith('trade-')) {
+      return cmd.reply({ content: '❌ Use in trade ticket channel', flags: 64 });
     }
-  }
-});
-
-// ========== PANEL COMMAND ==========
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-  if (message.content === '!panel' && message.author.id === OWNER_ID) {
-    const row = new ActionRowBuilder().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId('crypto_select')
-        .setPlaceholder('💰 Select cryptocurrency')
-        .addOptions(
-          { label: '📀 Litecoin (LTC)', value: 'ltc', emoji: '💎' },
-          { label: '💵 Tether USDT (BEP-20)', value: 'usdt', emoji: '💰' }
-        )
-    );
-    const channel = message.channel;
-    const panelEmbed = new EmbedBuilder()
-      .setTitle('# 🛡️ GamerProtect')
-      .setColor(0x9b59b6)
-      .setDescription('**Secure Escrow for Gaming Trades**')
-      .addFields(
-        { name: '💰 Fees', value: `• $250+: $${FEES.over250}\n• Under $250: $${FEES.under250}\n• Under $50: FREE`, inline: true },
-        { name: '📊 Rate', value: `1 LTC = $${liveRates.ltc.toFixed(2)}`, inline: true }
-      )
-      .setFooter({ text: 'GamerProtect - #1 Gaming Escrow' });
-    
-    await channel.send({ embeds: [panelEmbed], components: [row] });
-    await message.reply('✅ Panel sent!');
-  }
-});
-
-// ========== MIDDLEMAN MANAGEMENT ==========
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-  if (!message.guild) return;
-  if (message.author.id !== OWNER_ID) return;
-  
-  if (message.content.startsWith('!givemm')) {
-    const target = message.mentions.users.first();
-    if (!target) return message.reply('❌ Usage: `!givemm @user`');
-    const member = message.guild.members.cache.get(target.id);
-    const role = message.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
-    if (!role) return message.reply('❌ Role not found');
-    await member.roles.add(role);
-    addPersistentMiddleman(target.id);
-    message.reply(`✅ ${target.tag} is now a GamerProtect Middleman`);
+    await cmd.reply('🔒 **Closing ticket in 5 seconds...**');
+    setTimeout(() => cmd.channel?.delete(), 5000);
   }
   
-  if (message.content.startsWith('!removemm')) {
-    const target = message.mentions.users.first();
-    if (!target) return message.reply('❌ Usage: `!removemm @user`');
-    const member = message.guild.members.cache.get(target.id);
-    const role = message.guild.roles.cache.get(MIDDLEMAN_ROLE_ID);
-    if (member && role) await member.roles.remove(role);
-    removePersistentMiddleman(target.id);
-    message.reply(`✅ ${target.tag} removed from Middleman`);
-  }
-  
-  if (message.content === '!listmm') {
-    if (savedMiddlemen.size === 0) return message.reply('📋 No middlemen');
-    let list = '🛡️ **GamerProtect Middlemen:**\n';
-    for (const id of savedMiddlemen) {
-      try { const u = await client.users.fetch(id); list += `• ${u.tag}\n`; } catch(e) { list += `• Unknown\n`; }
+  if (cmd.commandName === 'say') {
+    if (cmd.user.id !== CONFIG.OWNER_ID) {
+      return cmd.reply({ content: '❌ Owner only', flags: 64 });
     }
-    message.reply(list);
+    const msg = cmd.options.getString('message', true);
+    const channel = cmd.options.getChannel('channel') || cmd.channel;
+    await cmd.deferReply({ flags: 64 });
+    if (channel?.isTextBased()) await (channel as TextChannel).send(msg);
+    await cmd.editReply(`✅ Said "${msg}" in ${channel}`);
   }
 });
 
-// ========== PURCHASES (OWNER ONLY) ==========
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-  if (!message.guild) return;
-  if (!message.content.startsWith('$addpurchases')) return;
-  
-  if (message.author.id !== OWNER_ID) {
-    return message.reply('❌ Only the bot owner can add purchases!');
-  }
-  
-  const args = message.content.split(' ');
-  let amount = parseFloat(args[1]?.replace('$', ''));
-  if (isNaN(amount)) return message.reply('Usage: $addpurchases 150');
-  
-  let target = message.author;
-  if (message.mentions.users.size > 0) {
-    target = message.mentions.users.first();
-    amount = parseFloat(args[2]?.replace('$', ''));
-    if (isNaN(amount)) return message.reply('Usage: $addpurchases @user 150');
-  }
-  
-  const current = userPurchases.get(target.id) || 0;
-  const newTotal = current + amount;
-  userPurchases.set(target.id, newTotal);
-  const user = getUser(target.id);
-  user.balance += amount;
-  saveUser(target.id, user);
-  await message.reply(`✅ Added $${amount} to ${target.username}. New total: $${newTotal} (+${amount} GP)`);
-});
-
-// ========== TICKET CREATION ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isStringSelectMenu()) return;
-  if (interaction.customId !== 'crypto_select') return;
-  
-  const crypto = interaction.values[0];
-  const modal = new ModalBuilder()
-    .setCustomId(`trade_form_${interaction.user.id}`)
-    .setTitle('🛡️ GamerProtect - New Trade');
-  
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('trader').setLabel("📥 Receiver's Username or ID (Sends Items)").setStyle(TextInputStyle.Short).setPlaceholder('@username or Discord ID').setRequired(true)),
-    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('giving').setLabel('🎮 What is the Receiver giving? (Items/Goods)').setStyle(TextInputStyle.Short).setPlaceholder('Game items, account, etc.').setRequired(true)),
-    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('receiving').setLabel('💰 What is the Sender giving? (Crypto)').setStyle(TextInputStyle.Short).setPlaceholder('LTC, USDT amount').setRequired(true))
-  );
-  
-  stepStates.set(`temp_${interaction.user.id}`, { crypto });
-  await interaction.showModal(modal);
-});
-
-// ========== FORM SUBMISSION ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isModalSubmit()) return;
-  if (!interaction.customId.startsWith('trade_form_')) return;
-  
-  await interaction.deferReply({ flags: 64 });
-  const userId = interaction.customId.split('_')[2];
-  if (userId !== interaction.user.id) return;
-  const temp = stepStates.get(`temp_${userId}`);
-  if (!temp) return interaction.editReply('❌ Session expired');
-  
-  const traderInput = interaction.fields.getTextInputValue('trader');
-  const giving = interaction.fields.getTextInputValue('giving');
-  const receiving = interaction.fields.getTextInputValue('receiving');
-  const found = await findUser(interaction.guild, traderInput);
-  
-  try {
-    const ticketNum = Math.floor(Math.random() * 9000) + 1000;
-    const channelName = `gp-${interaction.user.username}-${ticketNum}`;
-    
-    const adminRole = interaction.guild.roles.cache.find(role => role.permissions.has(PermissionsBitField.Flags.Administrator));
-    
-    const channel = await interaction.guild.channels.create({
-      name: channelName,
-      type: ChannelType.GuildText,
-      parent: TICKET_CATEGORY_ID,
-      permissionOverwrites: [
-        { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-        { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
-      ]
-    });
-    
-    if (found.found && found.id) {
-      await channel.permissionOverwrites.create(found.id, {
-        ViewChannel: true, SendMessages: true, ReadMessageHistory: true
-      });
-    }
-    
-    if (adminRole) {
-      await channel.permissionOverwrites.create(adminRole, {
-        ViewChannel: true, SendMessages: true, ReadMessageHistory: true
-      });
-    }
-    
-    trades.set(channel.id, {
-      crypto: temp.crypto,
-      ticketNumber: ticketNum,
-      trader1Id: interaction.user.id,
-      trader1Name: interaction.user.username,
-      trader2Id: found.found ? found.id : null,
-      trader2Name: found.name,
-      trader1Item: giving,
-      trader2Item: receiving,
-      senderId: null,
-      receiverId: null,
-      amountUSD: null,
-      amountCrypto: null,
-      feeUSD: 0,
-      feePayer: null,
-      status: 'waiting_roles',
-      channelId: channel.id,
-      exchangeRateUsed: liveRates[temp.crypto],
-      paymentConfirmed: false
-    });
-    
-    await interaction.editReply(`✅ **GamerProtect ticket created!**\n🔗 ${channel}`);
-    
-    const traderMention = found.found ? `<@${found.id}>` : found.name;
-    const detailsEmbed = new EmbedBuilder()
-      .setTitle('# 🛡️ GamerProtect Escrow')
-      .setColor(0x9b59b6)
-      .setDescription(`**📤 Sender (Sends Crypto):** ${interaction.user}\n**📥 Receiver (Sends Items):** ${traderMention}`)
-      .addFields(
-        { name: '💰 **Sender gives (crypto):**', value: `\`\`\`${receiving}\`\`\``, inline: false },
-        { name: '🎮 **Receiver gives (items/goods):**', value: `\`\`\`${giving}\`\`\``, inline: false },
-        { name: '🏦 **Escrow Address:**', value: `\`${LTC_WALLET_ADDRESS}\``, inline: false },
-        { name: '🔒 **Status:**', value: '🟡 Awaiting role selection', inline: false }
-      )
-      .setFooter({ text: `Trade ID: #${ticketNum} | GamerProtect` });
-    
-    const deleteRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`delete_${channel.id}`).setLabel('❌ Cancel').setStyle(ButtonStyle.Danger));
-    await channel.send({ embeds: [detailsEmbed], components: [deleteRow] });
-    
-    const both = `${interaction.user} ${found.found ? `<@${found.id}>` : ''}`;
-    await channel.send({ content: `🛡️ **GamerProtect Ticket Created!**\n${both}\n\nSelect your roles below.` });
-    
-    const roleRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`sender_${channel.id}`).setLabel('📤 Sender (Sends Crypto)').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`receiver_${channel.id}`).setLabel('📥 Receiver (Sends Items)').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`reset_${channel.id}`).setLabel('🔄 Reset').setStyle(ButtonStyle.Secondary)
-    );
-    await channel.send({ content: '**Select your role:**', components: [roleRow] });
-    stepStates.delete(`temp_${userId}`);
-  } catch (err) {
-    console.error(err);
-    await interaction.editReply(`❌ Error: ${err.message}`);
-  }
-});
-
-// ========== DELETE TICKET ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-  if (interaction.customId.startsWith('delete_')) {
-    const id = interaction.customId.split('_')[1];
-    await interaction.reply({ content: '🗑️ Cancelling...', flags: 64 });
-    setTimeout(async () => {
-      const ch = await client.channels.fetch(id);
-      if (ch) await ch.delete();
-    }, 3000);
-  }
-});
-
-// ========== ROLE SELECTION ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-  if (!interaction.customId.startsWith('sender_') && !interaction.customId.startsWith('receiver_') && !interaction.customId.startsWith('reset_')) return;
-  
-  const id = interaction.customId.split('_')[1];
-  const trade = trades.get(id);
-  if (!trade) return;
-  
-  if (interaction.customId.startsWith('reset_')) {
-    trade.senderId = null;
-    trade.receiverId = null;
-    trades.set(id, trade);
-    roleConfirmations.delete(id);
-    await interaction.reply({ content: '🔄 Roles reset', flags: 64 });
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`sender_${id}`).setLabel('📤 Sender (Sends Crypto)').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`receiver_${id}`).setLabel('📥 Receiver (Sends Items)').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`reset_${id}`).setLabel('🔄 Reset').setStyle(ButtonStyle.Secondary)
-    );
-    await interaction.channel.send({ content: 'Select your role:', components: [row] });
-    return;
-  }
-  
-  if (interaction.customId.startsWith('sender_')) {
-    trade.senderId = interaction.user.id;
-    await interaction.reply({ content: '✅ You are the Sender (you will send CRYPTO to escrow)', flags: 64 });
-  } else if (interaction.customId.startsWith('receiver_')) {
-    trade.receiverId = interaction.user.id;
-    await interaction.reply({ content: '✅ You are the Receiver (you will send ITEMS to sender)', flags: 64 });
-  }
-  trades.set(id, trade);
-  
-  if (trade.senderId && trade.receiverId && !roleConfirmations.has(id)) {
-    roleConfirmations.set(id, []);
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`confirm_roles_${id}`).setLabel('✅ Confirm').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`incorrect_roles_${id}`).setLabel('❌ Incorrect').setStyle(ButtonStyle.Danger)
-    );
-    const embed = new EmbedBuilder()
-      .setTitle('Confirm Roles')
-      .setColor(0xff9900)
-      .setDescription(`**📤 Sender (Sends Crypto):** <@${trade.senderId}>\n**📥 Receiver (Sends Items):** <@${trade.receiverId}>`);
-    await interaction.channel.send({ embeds: [embed], components: [row] });
-  }
-});
-
-// ========== ROLE CONFIRMATION ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-  if (!interaction.customId.startsWith('confirm_roles_') && !interaction.customId.startsWith('incorrect_roles_')) return;
-  
-  const id = interaction.customId.split('_')[2];
-  const trade = trades.get(id);
-  if (!trade) return;
-  const confirmed = roleConfirmations.get(id) || [];
-  
-  if (interaction.customId.startsWith('incorrect_roles_')) {
-    trade.senderId = null;
-    trade.receiverId = null;
-    trades.set(id, trade);
-    roleConfirmations.delete(id);
-    await interaction.reply({ content: '🔄 Roles reset', flags: 64 });
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`sender_${id}`).setLabel('📤 Sender').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`receiver_${id}`).setLabel('📥 Receiver').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`reset_${id}`).setLabel('🔄 Reset').setStyle(ButtonStyle.Secondary)
-    );
-    await interaction.channel.send({ content: 'Select your role:', components: [row] });
-    return;
-  }
-  
-  if (!confirmed.includes(interaction.user.id)) {
-    confirmed.push(interaction.user.id);
-    roleConfirmations.set(id, confirmed);
-    await interaction.reply({ content: `✅ ${interaction.user.username} confirmed`, flags: 64 });
-  } else {
-    return interaction.reply({ content: '❌ Already confirmed!', flags: 64 });
-  }
-  
-  if (confirmed.length === 2 && confirmed.includes(trade.senderId) && confirmed.includes(trade.receiverId)) {
-    roleConfirmations.delete(id);
-    const btn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`set_amount_${id}`).setLabel('💰 Set Amount').setStyle(ButtonStyle.Primary));
-    await interaction.channel.send({ content: `<@${trade.senderId}>`, components: [btn] });
-  }
-});
-
-// ========== SET AMOUNT ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-  if (!interaction.customId.startsWith('set_amount_')) return;
-  const id = interaction.customId.split('_')[2];
-  const trade = trades.get(id);
-  if (!trade) return;
-  if (interaction.user.id !== trade.senderId) return interaction.reply({ content: '❌ Only sender (crypto sender) can set amount', flags: 64 });
-  
-  const modal = new ModalBuilder().setCustomId(`amount_modal_${id}`).setTitle('Set Amount');
-  modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('amount').setLabel('USD Amount').setStyle(TextInputStyle.Short).setPlaceholder('50').setRequired(true)));
-  await interaction.showModal(modal);
-});
-
-// ========== HANDLE AMOUNT ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isModalSubmit()) return;
-  if (!interaction.customId.startsWith('amount_modal_')) return;
-  await interaction.deferReply({ flags: 64 });
-  const id = interaction.customId.split('_')[2];
-  const trade = trades.get(id);
-  if (!trade) return;
-  
-  const amount = parseFloat(interaction.fields.getTextInputValue('amount'));
-  if (isNaN(amount) || amount <= 0) return interaction.editReply('❌ Invalid amount');
-  
-  trade.amountUSD = amount;
-  const rate = liveRates[trade.crypto];
-  trade.exchangeRateUsed = rate;
-  trade.amountCrypto = (amount / rate).toFixed(8);
-  if (amount >= FEES.over250Threshold) trade.feeUSD = FEES.over250;
-  else if (amount >= FEES.freeThreshold) trade.feeUSD = FEES.under250;
-  else trade.feeUSD = 0;
-  trades.set(id, trade);
-  
-  const embed = new EmbedBuilder()
-    .setTitle('💰 Deal Summary')
-    .setColor(0x9b59b6)
-    .setDescription(`**Amount:** $${amount.toFixed(2)} USD`)
-    .addFields(
-      { name: '💎 Crypto', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()}`, inline: true },
-      { name: '📊 Rate', value: `1 ${trade.crypto.toUpperCase()} = $${rate.toFixed(2)}`, inline: true },
-      { name: '💸 Fee', value: trade.feeUSD > 0 ? `$${trade.feeUSD}` : 'FREE', inline: true }
-    );
-  
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`confirm_amount_${id}`).setLabel('✅ Confirm').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`incorrect_amount_${id}`).setLabel('❌ Incorrect').setStyle(ButtonStyle.Danger)
-  );
-  await interaction.editReply('✅ Amount set. Confirm below.');
-  await interaction.channel.send({ embeds: [embed], components: [row] });
-  amountConfirmations.set(id, []);
-});
-
-// ========== AMOUNT CONFIRMATION ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-  if (!interaction.customId.startsWith('confirm_amount_') && !interaction.customId.startsWith('incorrect_amount_')) return;
-  const id = interaction.customId.split('_')[2];
-  const trade = trades.get(id);
-  if (!trade) return;
-  const confirmed = amountConfirmations.get(id) || [];
-  
-  if (interaction.customId.startsWith('incorrect_amount_')) {
-    const btn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`set_amount_${id}`).setLabel('💰 Set Amount').setStyle(ButtonStyle.Primary));
-    await interaction.reply({ content: 'Set amount again', flags: 64 });
-    await interaction.channel.send({ content: `<@${trade.senderId}>`, components: [btn] });
-    amountConfirmations.delete(id);
-    return;
-  }
-  
-  if (!confirmed.includes(interaction.user.id)) {
-    confirmed.push(interaction.user.id);
-    amountConfirmations.set(id, confirmed);
-    await interaction.reply({ content: `✅ ${interaction.user.username} confirmed`, flags: 64 });
-  } else {
-    return interaction.reply({ content: 'Already confirmed', flags: 64 });
-  }
-  
-  if (confirmed.length === 2 && confirmed.includes(trade.senderId) && confirmed.includes(trade.receiverId)) {
-    amountConfirmations.delete(id);
-    if (trade.feeUSD === 0) {
-      await sendPaymentInvoice(interaction.channel, trade);
-    } else {
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`fee_sender_${id}`).setLabel('📤 Sender pays').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`fee_receiver_${id}`).setLabel('📥 Receiver pays').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`fee_split_${id}`).setLabel('⚖️ Split').setStyle(ButtonStyle.Secondary)
-      );
-      const embed = new EmbedBuilder()
-        .setTitle('Who pays the fee?')
-        .setColor(0xff9900)
-        .setDescription(`Fee: $${trade.feeUSD}\nSplit: $${(trade.feeUSD / 2).toFixed(2)} each`);
-      await interaction.channel.send({ embeds: [embed], components: [row] });
-      feeConfirmations.set(id, { users: [], selected: null });
-    }
-  }
-});
-
-// ========== FEE SELECTION ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-  if (!interaction.customId.startsWith('fee_')) return;
-  const id = interaction.customId.split('_')[2];
-  const trade = trades.get(id);
-  if (!trade) return;
-  if (trade.feePayer) return;
-  const state = feeConfirmations.get(id);
-  if (!state) return;
-  
-  let selected = null;
-  if (interaction.customId.startsWith('fee_sender')) selected = 'sender';
-  else if (interaction.customId.startsWith('fee_receiver')) selected = 'receiver';
-  else selected = 'split';
-  
-  if (!state.users.includes(interaction.user.id)) {
-    state.users.push(interaction.user.id);
-    if (!state.selected) state.selected = selected;
-    feeConfirmations.set(id, state);
-    await interaction.reply({ content: `✅ ${interaction.user.username} selected: ${selected}`, flags: 64 });
-  } else {
-    return interaction.reply({ content: 'Already selected', flags: 64 });
-  }
-  
-  if (state.users.length === 2 && state.users.includes(trade.senderId) && state.users.includes(trade.receiverId)) {
-    if (state.selected === selected) {
-      if (state.selected === 'sender') trade.feePayer = trade.senderId;
-      else if (state.selected === 'receiver') trade.feePayer = trade.receiverId;
-      else trade.feePayer = 'split';
-      trades.set(id, trade);
-      feeConfirmations.delete(id);
-      await interaction.channel.send(`✅ Fee paid by: ${state.selected.toUpperCase()}`);
-      await sendPaymentInvoice(interaction.channel, trade);
-    } else {
-      await interaction.channel.send('❌ Fee mismatch! Try again.');
-      feeConfirmations.delete(id);
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`fee_sender_${id}`).setLabel('📤 Sender pays').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`fee_receiver_${id}`).setLabel('📥 Receiver pays').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`fee_split_${id}`).setLabel('⚖️ Split').setStyle(ButtonStyle.Secondary)
-      );
-      const embed = new EmbedBuilder().setTitle('Who pays the fee?').setColor(0xff9900).setDescription(`Fee: $${trade.feeUSD}`);
-      await interaction.channel.send({ embeds: [embed], components: [row] });
-      feeConfirmations.set(id, { users: [], selected: null });
-    }
-  }
-});
-
-// ========== DM CONFIRMATION ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-  if (!interaction.customId.startsWith('dm_confirm_')) return;
-  const id = interaction.customId.split('_')[2];
-  const trade = trades.get(id);
-  if (!trade) return;
-  if (trade.paymentConfirmed) return interaction.reply({ content: 'Already confirmed', flags: 64 });
-  
-  trade.paymentConfirmed = true;
-  trades.set(id, trade);
-  await interaction.reply({ content: '✅ Confirmed', flags: 64 });
-  
-  const ticket = await client.channels.fetch(id);
-  if (ticket) {
-    const total = trade.totalUSD || trade.amountUSD;
-    const tx = getTransactionByAmount(total);
-    await ticket.send({ embeds: [
-      new EmbedBuilder()
-        .setTitle('📡 Transaction Detected')
-        .setColor(0xff9900)
-        .addFields(
-          { name: '🔗 TX', value: `[${tx.shortHash}](${tx.link})`, inline: false },
-          { name: '💰 Amount', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()}`, inline: true }
-        )
-    ] });
-    
-    setTimeout(async () => {
-      await ticket.send({ embeds: [
-        new EmbedBuilder()
-          .setTitle('✅ Transaction Confirmed!')
-          .setColor(0x00ff00)
-          .addFields(
-            { name: '🔗 TX', value: `[${tx.shortHash}](${tx.link})`, inline: false },
-            { name: '💰 Amount', value: `${trade.amountCrypto} ${trade.crypto.toUpperCase()}`, inline: true }
-          )
-      ] });
-      await delay(2000);
-      
-      const proceed = new EmbedBuilder()
-        .setTitle('✅ Proceed with Trade')
-        .setColor(0x00ff00)
-        .setDescription(`**Step 1:** <@${trade.senderId}> (Sender) - Send the CRYPTO to escrow\n\n**Step 2:** Once payment is confirmed, <@${trade.receiverId}> (Receiver) - Send the ITEMS/GOODS to <@${trade.senderId}>\n\n**Step 3:** <@${trade.senderId}> (Sender) - Once you receive the items, click **Release Funds** below\n\n**Step 4:** The Receiver will receive the crypto payment to their wallet`)
-        .addFields(
-          { name: '⚠️ Important', value: 'Do NOT release funds until you have received ALL items as agreed. This action cannot be undone.', inline: false }
-        );
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`release_${id}`).setLabel('🔓 Release Funds').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`cancel_${id}`).setLabel('❌ Cancel Trade').setStyle(ButtonStyle.Danger)
-      );
-      await ticket.send({ embeds: [proceed], components: [row] });
-    }, 15000);
-  }
-});
-
-// ========== RELEASE (RECEIVER ENTERS WALLET) ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-  
-  if (interaction.customId.startsWith('release_')) {
-    const id = interaction.customId.split('_')[1];
-    const trade = trades.get(id);
-    if (!trade) return;
-    
-    if (interaction.user.id !== trade.senderId) {
-      return interaction.reply({ 
-        content: '❌ Only the Sender can release funds!', 
-        flags: 64 
-      });
-    }
-    
-    if (!trade.paymentConfirmed) {
-      return interaction.reply({ 
-        content: '❌ Payment has not been confirmed yet!', 
-        flags: 64 
-      });
-    }
-    
-    const receiverButtonRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`receiver_ready_${id}`)
-        .setLabel('📥 Receive Funds')
-        .setStyle(ButtonStyle.Success)
-    );
-    
-    await interaction.reply({ 
-      content: `✅ Release initiated! Waiting for <@${trade.receiverId}> to provide their wallet address...`,
-      flags: 64 
-    });
-    
-    await interaction.channel.send({ 
-      content: `<@${trade.receiverId}> - The sender has released the funds! Click the button below to enter your ${trade.crypto.toUpperCase()} wallet address to receive the crypto payment.`,
-      components: [receiverButtonRow]
-    });
-  }
-  
-  if (interaction.customId.startsWith('receiver_ready_')) {
-    const id = interaction.customId.split('_')[2];
-    const trade = trades.get(id);
-    if (!trade) return;
-    
-    if (interaction.user.id !== trade.receiverId) {
-      return interaction.reply({ 
-        content: '❌ Only the receiver can enter their wallet address!', 
-        flags: 64 
-      });
-    }
-    
-    const modal = new ModalBuilder()
-      .setCustomId(`wallet_${id}`)
-      .setTitle(`Enter Your ${trade.crypto.toUpperCase()} Wallet Address`);
-    
-    modal.addComponents(new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId('wallet')
-        .setLabel(`Your ${trade.crypto.toUpperCase()} Address`)
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder(trade.crypto === 'ltc' ? 'Enter your LTC wallet address' : 'Enter your USDT wallet address')
-        .setRequired(true)
-    ));
-    
-    await interaction.showModal(modal);
-  }
-  
-  if (interaction.customId.startsWith('back_')) {
-    await interaction.reply({ content: '🔙 Release cancelled.', flags: 64 });
-  }
-  
-  if (interaction.customId.startsWith('cancel_')) {
-    const id = interaction.customId.split('_')[1];
-    await interaction.reply({ content: '❌ Trade cancelled. Closing ticket...', flags: 64 });
-    setTimeout(async () => { 
-      const ch = await client.channels.fetch(id); 
-      if (ch) await ch.delete(); 
-    }, 5000);
-  }
-  
-  if (interaction.customId.startsWith('copy_')) {
-    const id = interaction.customId.split('_')[1];
-    const trade = trades.get(id);
-    if (trade) {
-      const details = `Address: ${LTC_WALLET_ADDRESS}\nAmount: ${trade.amountCrypto} ${trade.crypto.toUpperCase()}`;
-      await interaction.reply({ content: `📋 Copied!\n\`\`\`${details}\`\`\``, flags: 64 });
-    }
-  }
-});
-
-// ========== WALLET & COMPLETION ($mercy IN TICKET) ==========
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isModalSubmit()) return;
-  if (!interaction.customId.startsWith('wallet_')) return;
-  
-  await interaction.deferReply({ flags: 64 });
-  const id = interaction.customId.split('_')[1];
-  const trade = trades.get(id);
-  if (!trade) return;
-  
-  if (interaction.user.id !== trade.receiverId) {
-    return interaction.editReply('❌ Only the receiver can submit their wallet address!');
-  }
-  
-  const receiverWallet = interaction.fields.getTextInputValue('wallet');
-  const total = trade.totalUSD || trade.amountUSD;
-  const tx = getTransactionByAmount(total);
-  const sent = trade.amountCrypto;
-  const usd = (parseFloat(sent) * (trade.exchangeRateUsed || liveRates[trade.crypto])).toFixed(2);
-  
-  await interaction.channel.send({ embeds: [
-    new EmbedBuilder()
-      .setTitle('✅ Trade Completed Successfully!')
-      .setColor(0x00ff00)
-      .setDescription(`**Trade #${trade.ticketNumber}** has been completed!`)
-      .addFields(
-        { name: '🔗 Transaction Hash', value: `[${tx.shortHash}](${tx.link})`, inline: false },
-        { name: '💰 Amount Sent to Receiver', value: `${sent} ${trade.crypto.toUpperCase()} ($${usd})`, inline: true },
-        { name: '🏦 Receiver Wallet', value: `\`${receiverWallet}\``, inline: false },
-        { name: '🛡️ Escrow Service', value: 'GamerProtect Secure Middleman', inline: true }
-      )
-      .setFooter({ text: 'Thank you for using GamerProtect!' })
-  ] });
-  
-  await interaction.editReply('✅ Wallet address received! Trade completed successfully.');
-  
-  // RUN $mercy IN TICKET CHANNEL
-  await interaction.channel.send(`$mercy <@${trade.receiverId}>`);
-  console.log(`📢 $mercy command sent in ticket ${interaction.channel.name} for ${trade.receiverId}`);
-  
-  const sender = getUser(trade.senderId);
-  const receiver = getUser(trade.receiverId);
-  sender.rep = (sender.rep || 0) + 5;
-  receiver.rep = (receiver.rep || 0) + 5;
-  saveUser(trade.senderId, sender);
-  saveUser(trade.receiverId, receiver);
-  
-  const current = userPurchases.get(trade.senderId) || 0;
-  userPurchases.set(trade.senderId, current + trade.amountUSD);
-  
-  const logsChannel = client.channels.cache.get(LOGS_CHANNEL_ID);
-  if (logsChannel) {
-    await logsChannel.send({ embeds: [
-      new EmbedBuilder()
-        .setTitle('✅ GamerProtect Trade Completed')
-        .setColor(0x00ff00)
-        .setDescription(`**Trade #${trade.ticketNumber}** completed`)
-        .addFields(
-          { name: '📤 Sender', value: `<@${trade.senderId}>`, inline: true },
-          { name: '📥 Receiver', value: `<@${trade.receiverId}>`, inline: true },
-          { name: '💰 Amount', value: `$${trade.amountUSD}`, inline: true },
-          { name: '💎 Crypto Sent', value: `${sent} ${trade.crypto.toUpperCase()}`, inline: true },
-          { name: '🏦 Receiver Wallet', value: `\`${receiverWallet}\``, inline: false },
-          { name: '🔗 TX', value: `[${tx.shortHash}](${tx.link})`, inline: true }
-        )
-        .setFooter({ text: `Completed: ${new Date().toLocaleString()}` })
-    ] });
-  }
-  
-  trade.status = 'completed';
-  trades.set(id, trade);
-  
-  setTimeout(async () => {
-    try {
-      await interaction.channel.send('🔒 Ticket will close in 5 seconds...');
-      setTimeout(async () => {
-        if (interaction.channel.deletable) await interaction.channel.delete();
-      }, 5000);
-    } catch(e) {
-      console.log('Could not auto-close ticket:', e.message);
-    }
-  }, 10000);
-});
-
-client.login(process.env.DISCORD_TOKEN);
+// ========== LOGIN ==========
+const token = process.env.DISCORD_TOKEN;
+if (!token) {
+  console.error('❌ DISCORD_TOKEN not found in environment variables!');
+  process.exit(1);
+}
+client.login(token);
